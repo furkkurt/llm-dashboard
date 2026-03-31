@@ -1,0 +1,40 @@
+=== flutter pub get stdout ===
+Resolving dependencies...
+Downloading packages...
++ characters 1.4.0 (1.4.1 available)
++ collection 1.19.1
++ ffi 2.2.0
++ file 7.0.1
++ flutter 0.0.0 from sdk flutter
++ flutter_web_plugins 0.0.0 from sdk flutter
++ material_color_utilities 0.11.1 (0.13.0 available)
++ meta 1.17.0 (1.18.2 available)
++ path 1.9.1
++ path_provider_linux 2.2.1
++ path_provider_platform_interface 2.1.2
++ path_provider_windows 2.3.0
++ platform 3.1.6
++ plugin_platform_interface 2.1.8
++ shared_preferences 2.5.5
++ shared_preferences_android 2.4.23
++ shared_preferences_foundation 2.5.6
++ shared_preferences_linux 2.4.1
++ shared_preferences_platform_interface 2.4.2
++ shared_preferences_web 2.4.3
++ shared_preferences_windows 2.4.1
++ sky_engine 0.0.0 from sdk flutter
++ vector_math 2.2.0 (2.3.0 available)
++ web 1.1.1
++ xdg_directories 1.1.0
+Changed 25 dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== stderr ===
+
+
+=== dart analyze (round 0) stdout ===
+WARNING|STATIC_WARNING|UNUSED_FIELD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/60667006-b9e1-45f7-83d9-82cbb5c85eef/flutter_pkg/lib/main.dart|303|8|9|The value of the field '_isSaving' isn't used.
+
+=== stderr ===
+

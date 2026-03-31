@@ -1,0 +1,43 @@
+=== dart analyze stdout ===
+ERROR|COMPILE_TIME_ERROR|URI_DOES_NOT_EXIST|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|1|8|31|Target of URI doesn't exist: 'package:flutter/material.dart'.
+ERROR|COMPILE_TIME_ERROR|URI_DOES_NOT_EXIST|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|2|8|52|Target of URI doesn't exist: 'package:shared_preferences/shared_preferences.dart'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_FUNCTION|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|5|3|6|The function 'runApp' isn't defined.
+ERROR|COMPILE_TIME_ERROR|EXTENDS_NON_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|8|26|15|Classes can only extend other classes.
+ERROR|COMPILE_TIME_ERROR|SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_NAMED|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|9|27|3|No associated named super constructor parameter.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|12|3|6|Undefined class 'Widget'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|12|16|12|Undefined class 'BuildContext'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|13|12|11|The method 'MaterialApp' isn't defined for the type 'NotepadApp'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|15|14|9|The method 'ThemeData' isn't defined for the type 'NotepadApp'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|16|24|6|Undefined name 'Colors'.
+ERROR|COMPILE_TIME_ERROR|EXTENDS_NON_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|24|26|14|Classes can only extend other classes.
+ERROR|COMPILE_TIME_ERROR|SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_NAMED|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|25|27|3|No associated named super constructor parameter.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|28|3|5|Undefined class 'State'.
+ERROR|COMPILE_TIME_ERROR|EXTENDS_NON_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|31|32|5|Classes can only extend other classes.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|32|9|21|Undefined class 'TextEditingController'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|32|45|21|The method 'TextEditingController' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_SUPER_MEMBER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|36|11|9|The method 'initState' isn't defined in a superclass of '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|42|25|17|Undefined name 'SharedPreferences'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|43|5|8|The method 'setState' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|50|25|17|Undefined name 'SharedPreferences'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|60|3|6|Undefined class 'Widget'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_CLASS|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|60|16|12|Undefined class 'BuildContext'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|61|12|8|The method 'Scaffold' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|62|15|6|The method 'AppBar' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|CREATION_WITH_NON_TYPE|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|63|22|4|The name 'Text' isn't a class.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|64|26|6|Undefined name 'Colors'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|66|11|10|The method 'IconButton' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|CREATION_WITH_NON_TYPE|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|67|25|4|The name 'Icon' isn't a class.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|67|30|5|Undefined name 'Icons'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|73|13|7|The method 'Padding' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|74|24|14|Undefined name 'EdgeInsets'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|75|16|9|The method 'TextField' isn't defined for the type '_NoteScreenState'.
+ERROR|COMPILE_TIME_ERROR|CREATION_WITH_NON_TYPE|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|79|24|9|The name 'TextStyle' isn't a class.
+ERROR|COMPILE_TIME_ERROR|CREATION_WITH_NON_TYPE|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|80|29|15|The name 'InputDecoration' isn't a class.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|82|21|11|Undefined name 'InputBorder'.
+WARNING|STATIC_WARNING|OVERRIDE_ON_NON_OVERRIDING_MEMBER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|12|10|5|The method doesn't override an inherited method.
+WARNING|STATIC_WARNING|OVERRIDE_ON_NON_OVERRIDING_MEMBER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|28|21|11|The method doesn't override an inherited method.
+WARNING|STATIC_WARNING|OVERRIDE_ON_NON_OVERRIDING_MEMBER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|35|8|9|The method doesn't override an inherited method.
+WARNING|STATIC_WARNING|OVERRIDE_ON_NON_OVERRIDING_MEMBER|/home/furkan/projects/llm-eval/llm-dashboard/temp/runs/3d490b20-ef1a-4e2d-9d53-e55c9bd1fbfa/main.dart|60|10|5|The method doesn't override an inherited method.
+
+=== dart analyze stderr ===
+
