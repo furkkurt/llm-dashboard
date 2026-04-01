@@ -6,13 +6,15 @@ from pathlib import Path
 import pandas as pd
 import requests
 import streamlit as st
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+from backend.env_bootstrap import load_dashboard_env
+
+# Same as API: `.env` then `local.env` (override); never written by setup.sh.
+load_dashboard_env()
 
 from backend.flutter_extract import split_compare_transcript
 from backend.models import PaperScores
@@ -185,13 +187,12 @@ def render_ai_commentary_block(result: dict, metrics: dict | None) -> None:
     ac = result.get("ai_commentary") or (metrics or {}).get("ai_commentary")
     if not isinstance(ac, dict):
         return
-    has_body = bool(ac.get("metrics_comment") or ac.get("faithfulness_note") or ac.get("error"))
-    has_score = ac.get("faithfulness_score_1_5") is not None
-    if not has_body and not has_score:
+    # API omits null fields; treat "any Gemini payload" as worth showing
+    if not ac:
         return
     with st.expander("AI commentary (Gemini)", expanded=False):
         if ac.get("error"):
-            st.warning(ac["error"])
+            st.warning(str(ac["error"]))
         fs = ac.get("faithfulness_score_1_5")
         if fs is not None:
             st.caption(
@@ -202,6 +203,16 @@ def render_ai_commentary_block(result: dict, metrics: dict | None) -> None:
             st.markdown(str(ac["faithfulness_note"]))
         if ac.get("metrics_comment"):
             st.markdown(str(ac["metrics_comment"]))
+        if not (
+            ac.get("error")
+            or fs is not None
+            or ac.get("faithfulness_note")
+            or ac.get("metrics_comment")
+        ):
+            st.info(
+                "Commentary was requested but the model returned no usable text or score. "
+                "Check quota, `GOOGLE_API_KEY` in `llm-dashboard/local.env` or `.env`, and restart the API after editing."
+            )
 
 
 def render_paper_scores(paper: PaperScores | None) -> None:
@@ -223,6 +234,8 @@ def render_paper_scores(paper: PaperScores | None) -> None:
             "—" if fv is None else fv,
             help="Manual 1-5 or AI estimate (if auto commentary on) mapped to 0-100 when set.",
         )
+        if paper and not paper.faithfulness_rated:
+            st.caption("Unrated: composite uses **50** on this axis.")
     with c5:
         st.metric("Composite (default weights)", paper.composite_default_0_100)
 
@@ -365,6 +378,9 @@ with tab_compare:
             key="auto_commentary",
             help="Uses GOOGLE_API_KEY: estimates prompt adherence (1-5) when sliders are unrated, "
             "and adds a short metrics summary. Not a ground-truth judge.",
+        )
+        st.caption(
+            "Set `GOOGLE_API_KEY` in **llm-dashboard/local.env** (recommended) or `.env`, then **restart uvicorn**."
         )
         st.caption("Paste one prompt and each model’s code in the middle column. API: " + API_BASE)
 

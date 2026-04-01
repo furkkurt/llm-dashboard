@@ -35,6 +35,34 @@ class AiCommentary(BaseModel):
     error: Optional[str] = None
 
 
+class GeminiHealthResponse(BaseModel):
+    """Result of GET /health/gemini — does not expose the API key."""
+
+    ok: bool
+    model: Optional[str] = None
+    error: Optional[str] = None
+    preview: Optional[str] = Field(
+        None,
+        description="Short snippet of the model reply when the call succeeds.",
+    )
+    env_file: Optional[str] = Field(
+        None,
+        description="Absolute path to the .env file loaded before this check.",
+    )
+    env_file_present: Optional[bool] = Field(
+        None,
+        description="Whether `.env` exists on disk.",
+    )
+    local_env_file: Optional[str] = Field(
+        None,
+        description="Absolute path to optional `local.env` (loaded after `.env`, overrides it).",
+    )
+    local_env_present: Optional[bool] = Field(
+        None,
+        description="Whether `local.env` exists.",
+    )
+
+
 class GenerateRequest(BaseModel):
     llm_source: LLMSource
     target_language: TargetLanguage

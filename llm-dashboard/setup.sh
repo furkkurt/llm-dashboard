@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# This script does not modify an existing .env file. Put API keys in .env only (not .env.example).
+# Installs venv + deps + dirs only. Does not read, create, rename, or delete any secrets file.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "Note: This script does not overwrite .env — edit .env manually for API keys."
+if [ ! -f backend/main.py ]; then
+  echo "ERROR: Run setup.sh from the dashboard project root (expected backend/main.py here)." >&2
+  echo "       Current directory: $(pwd)" >&2
+  exit 1
+fi
+
+echo "Setup directory (project root): $(pwd)"
 
 if [ ! -d .venv ]; then
   python3 -m venv .venv
@@ -13,11 +19,6 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 mkdir -p tools results results/exports results/raw-logs temp/runs
-
-if [ ! -f .env ] && [ -f .env.example ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example — add your API keys and paths."
-fi
 
 if [ ! -f tools/detekt-cli.jar ]; then
   echo "Download detekt-cli.jar manually into tools/ (see https://github.com/detekt/detekt/releases)"

@@ -1,5 +1,7 @@
 # LLM evaluation metrics (research abstract alignment)
 
+**Project root:** the folder that contains `setup.sh`, `backend/`, and `frontend/`. In this repo that is `llm-eval/llm-dashboard/` (a second nested `llm-dashboard/` directory is not part of the source tree).
+
 This dashboard scores model outputs along dimensions discussed in the evaluation abstract (compilability, static analysis, tooling efficiency, and manual prompt faithfulness). The formulas below are **heuristic** research aids, not statistical tests.
 
 ## 1. Compilability (0–100)
@@ -37,6 +39,10 @@ If you **do not** rate faithfulness, the default composite uses a **neutral 50**
 
 When `POST /analyze` is called with `auto_commentary: true` and `GOOGLE_API_KEY` is set, the API runs a separate **Gemini** call (same model family as `GOOGLE_MODEL`, default `gemini-2.0-flash`) that returns JSON: an estimated `faithfulness_score_1_5`, a short `faithfulness_note`, and a plain-language `metrics_comment` on compile/static/timing signals.
 
+Put the key in **`llm-dashboard/local.env`** (recommended; gitignored, not touched by `setup.sh`) and/or **`.env`**. The loader reads `.env` then **`local.env`** (second wins). `override=True` so file values replace empty shell exports (e.g. `export GOOGLE_API_KEY=`). **Restart uvicorn** after edits.
+
+**Setup script:** `setup.sh` does **not** mention or access your secrets file (no existence check, no copy). It only creates the venv, runs `pip install`, and creates `tools/` / `results/` / `temp/` dirs. Maintain `.env` yourself; `.env.example` lists variable names only.
+
 - If you **did not** set a manual faithfulness score, the AI estimate is used for `build_paper_scores` and persistence.
 - If you **did** set a manual score, that value wins for scoring; the AI may still return an estimate for transparency.
 - This is **not** a ground-truth judge; it is a cheap assist subject to model bias and quota limits. Failures (missing key, parse errors) populate `ai_commentary.error` without failing the analyze request.
@@ -60,6 +66,7 @@ The **History & winner** tab lets you choose different weights; scores are renor
 
 ## API and storage
 
+- `GET /health/gemini` runs a tiny Gemini `generateContent` call using `GOOGLE_API_KEY` / `GOOGLE_MODEL` (same as AI commentary). The API reads **the saved file on disk**, not unsaved editor buffers—**save `.env`** after editing. Do not define `GOOGLE_API_KEY=` twice; the **last** occurrence wins (a trailing empty line clears the key). CLI: `python -m backend.gemini_check`.
 - `POST /analyze` accepts optional `faithfulness_score_1_5`, `faithfulness_notes`, and `auto_commentary` (boolean).
 - `PATCH /results/{id}` updates faithfulness and recomputes `paper_scores` in `metrics_json`.
 - `GET /results` and `GET /results/{id}` return rows including `metrics.paper_scores` when present.

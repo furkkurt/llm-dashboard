@@ -1,16 +1,17 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from pathlib import Path
-
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from backend.env_bootstrap import load_dashboard_env
+
+# Path anchored to this package, not cwd; override=True beats empty shell exports.
+load_dashboard_env()
 
 from backend.analyzer import run_analysis
 from backend.commentary import run_metrics_commentary
+from backend.gemini_check import run_gemini_smoke_test
 from backend.database import (
     fetch_result_by_id,
     fetch_results,
@@ -25,6 +26,7 @@ from backend.models import (
     AnalyzeRequest,
     AnalyzeResponse,
     FaithfulnessPatch,
+    GeminiHealthResponse,
     GenerateRequest,
     GenerateResponse,
 )
@@ -45,6 +47,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+async def root():
+    """Browser-friendly root: this process is the JSON API, not the Streamlit UI."""
+    return {
+        "service": "LLM Evaluation Dashboard API",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "gemini_check": "/health/gemini",
+        "note": "Dashboard UI: run Streamlit (e.g. streamlit run frontend/app.py); default port 8501.",
+    }
+
+
+@app.get("/health/gemini", response_model=GeminiHealthResponse)
+async def health_gemini():
+    """Live check that GOOGLE_API_KEY can call the configured Gemini model (tiny prompt)."""
+    result = await asyncio.to_thread(run_gemini_smoke_test)
+    return GeminiHealthResponse(**result)
 
 
 @app.post("/generate", response_model=GenerateResponse)

@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any, Optional
 
+from backend.env_bootstrap import load_dashboard_env
 from backend.models import AiCommentary, AnalysisMetrics, AnalysisSummary
 
 
@@ -31,6 +32,7 @@ def run_metrics_commentary(
     llm_source: str,
     manual_faithfulness_set: bool,
 ) -> AiCommentary:
+    load_dashboard_env()
     key = os.getenv("GOOGLE_API_KEY", "").strip()
     if not key:
         return AiCommentary(
