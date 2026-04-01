@@ -73,6 +73,12 @@ def tool_efficiency_score(total_duration_ms: int | None, cap_ms: int = 300_000) 
     return max(0.0, 100.0 * (1.0 - ratio))
 
 
+def faithfulness_1_5_from_0_100(score_0_100: float) -> int:
+    """Coarse 1-5 for SQLite `faithfulness_score` when AI used 0-100."""
+    s = max(0.0, min(100.0, float(score_0_100)))
+    return max(1, min(5, (int(s) // 20) + 1))
+
+
 def faithfulness_score_0_100(score_1_to_5: int | None) -> tuple[Optional[float], bool]:
     if score_1_to_5 is None:
         return None, False
@@ -109,6 +115,7 @@ def build_paper_scores(
     *,
     total_duration_ms: int | None,
     faithfulness_score_1_5: int | None,
+    faithfulness_0_100_direct: float | None = None,
     metrics_counts: tuple[int | None, int | None, int | None] | None = None,
 ) -> PaperScores:
     c = compilability_score(summary)
@@ -124,7 +131,11 @@ def build_paper_scores(
     else:
         s = static_analysis_health_score(summary, error_log, static_flags)
     e = tool_efficiency_score(total_duration_ms)
-    f_val, rated = faithfulness_score_0_100(faithfulness_score_1_5)
+    if faithfulness_0_100_direct is not None:
+        f_val = max(0.0, min(100.0, float(faithfulness_0_100_direct)))
+        rated = True
+    else:
+        f_val, rated = faithfulness_score_0_100(faithfulness_score_1_5)
     comp = composite_score(
         compilability=c,
         static_analysis=s,

@@ -11,7 +11,7 @@ load_dashboard_env()
 
 from backend.analyzer import run_analysis
 from backend.commentary import run_metrics_commentary
-from backend.gemini_check import run_gemini_smoke_test
+from backend.openrouter_check import run_openrouter_smoke_test
 from backend.database import (
     fetch_result_by_id,
     fetch_results,
@@ -26,11 +26,11 @@ from backend.models import (
     AnalyzeRequest,
     AnalyzeResponse,
     FaithfulnessPatch,
-    GeminiHealthResponse,
+    CommentaryHealthResponse,
     GenerateRequest,
     GenerateResponse,
 )
-from backend.paper_scoring import build_paper_scores
+from backend.paper_scoring import build_paper_scores, faithfulness_1_5_from_0_100
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,16 +56,24 @@ async def root():
         "service": "LLM Evaluation Dashboard API",
         "docs": "/docs",
         "openapi": "/openapi.json",
-        "gemini_check": "/health/gemini",
+        "commentary_health": "/health/commentary",
+        "commentary_health_legacy": "/health/gemini",
         "note": "Dashboard UI: run Streamlit (e.g. streamlit run frontend/app.py); default port 8501.",
     }
 
 
-@app.get("/health/gemini", response_model=GeminiHealthResponse)
-async def health_gemini():
-    """Live check that GOOGLE_API_KEY can call the configured Gemini model (tiny prompt)."""
-    result = await asyncio.to_thread(run_gemini_smoke_test)
-    return GeminiHealthResponse(**result)
+@app.get("/health/commentary", response_model=CommentaryHealthResponse)
+async def health_commentary():
+    """Live check that OPENROUTER_API_KEY can call the configured model (OpenRouter chat, tiny prompt)."""
+    result = await asyncio.to_thread(run_openrouter_smoke_test)
+    return CommentaryHealthResponse(**result)
+
+
+@app.get("/health/gemini", response_model=CommentaryHealthResponse, include_in_schema=False)
+async def health_commentary_legacy():
+    """Deprecated alias; use GET /health/commentary."""
+    result = await asyncio.to_thread(run_openrouter_smoke_test)
+    return CommentaryHealthResponse(**result)
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -98,8 +106,13 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
             )
 
         faithfulness_final = payload.faithfulness_score_1_5
-        if faithfulness_final is None and ai_commentary and ai_commentary.faithfulness_score_1_5 is not None:
-            faithfulness_final = ai_commentary.faithfulness_score_1_5
+        faithfulness_0_100_direct: float | None = None
+        if faithfulness_final is None and ai_commentary is not None:
+            if ai_commentary.faithfulness_score_0_100 is not None:
+                faithfulness_0_100_direct = float(ai_commentary.faithfulness_score_0_100)
+                faithfulness_final = faithfulness_1_5_from_0_100(faithfulness_0_100_direct)
+            elif ai_commentary.faithfulness_score_1_5 is not None:
+                faithfulness_final = ai_commentary.faithfulness_score_1_5
 
         counts: tuple[int | None, int | None, int | None] | None = None
         if metrics:
@@ -109,7 +122,10 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
             error_log,
             static_flags,
             total_duration_ms=result.get("run_duration_ms"),
-            faithfulness_score_1_5=faithfulness_final,
+            faithfulness_score_1_5=faithfulness_final
+            if faithfulness_0_100_direct is None
+            else None,
+            faithfulness_0_100_direct=faithfulness_0_100_direct,
             metrics_counts=counts,
         )
         base_m = metrics.model_dump() if metrics else {}

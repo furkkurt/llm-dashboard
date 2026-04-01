@@ -21,22 +21,33 @@ class AnalyzeRequest(BaseModel):
     faithfulness_notes: Optional[str] = Field(None, max_length=4000)
     auto_commentary: bool = Field(
         False,
-        description="If true, call Gemini to suggest faithfulness (when not set) and add metric comments.",
+        description="If true, call OpenRouter (chat completions) for faithfulness hint + metric comments.",
     )
 
 
 class AiCommentary(BaseModel):
-    """Optional Gemini-generated interpretation; not authoritative."""
+    """Optional model-generated interpretation via OpenRouter; not authoritative."""
 
-    faithfulness_score_1_5: Optional[int] = Field(None, ge=1, le=5)
+    faithfulness_score_0_100: Optional[int] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="How well this output fulfills the user task prompt (0-100).",
+    )
+    faithfulness_score_1_5: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Legacy 1-5 scale; ignored when faithfulness_score_0_100 is set.",
+    )
     faithfulness_note: str = ""
     metrics_comment: str = ""
-    provider: str = "gemini"
+    provider: str = "openrouter"
     error: Optional[str] = None
 
 
-class GeminiHealthResponse(BaseModel):
-    """Result of GET /health/gemini — does not expose the API key."""
+class CommentaryHealthResponse(BaseModel):
+    """Result of GET /health/commentary — does not expose the API key."""
 
     ok: bool
     model: Optional[str] = None
@@ -61,6 +72,10 @@ class GeminiHealthResponse(BaseModel):
         None,
         description="Whether `local.env` exists.",
     )
+
+
+# Backward-compatible alias (older docs / links).
+GeminiHealthResponse = CommentaryHealthResponse
 
 
 class GenerateRequest(BaseModel):

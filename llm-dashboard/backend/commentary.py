@@ -1,4 +1,4 @@
-"""Optional Gemini pass: faithfulness hint + short metrics narrative (JSON-only reply)."""
+"""Optional OpenRouter pass: task adherence 0-100 + notes on toolchain metrics (JSON-only reply)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from backend.env_bootstrap import load_dashboard_env
 from backend.models import AiCommentary, AnalysisMetrics, AnalysisSummary
+from backend.openrouter_client import openrouter_chat_completion
 
 
 def _truncate(s: str, max_len: int) -> str:
@@ -33,11 +34,11 @@ def run_metrics_commentary(
     manual_faithfulness_set: bool,
 ) -> AiCommentary:
     load_dashboard_env()
-    key = os.getenv("GOOGLE_API_KEY", "").strip()
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
         return AiCommentary(
-            error="GOOGLE_API_KEY not set; skipping AI commentary.",
-            provider="gemini",
+            error="OPENROUTER_API_KEY not set; skipping AI commentary.",
+            provider="openrouter",
         )
 
     try:
@@ -45,7 +46,7 @@ def run_metrics_commentary(
     except ValueError:
         timeout = 60.0
 
-    model_id = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash").strip()
+    model_id = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001").strip()
 
     metrics_blob: dict[str, Any] = {}
     if metrics:
@@ -54,7 +55,10 @@ def run_metrics_commentary(
             "pub_get_duration_ms": metrics.pub_get_duration_ms,
             "analyze_duration_ms": metrics.analyze_duration_ms,
             "dependency_resolve_duration_ms": metrics.dependency_resolve_duration_ms,
+            "kotlin_compile_duration_ms": metrics.kotlin_compile_duration_ms,
+            "detekt_duration_ms": metrics.detekt_duration_ms,
             "lines_of_code": metrics.lines_of_code,
+            "characters_code": metrics.characters_code,
             "analyzer_errors": metrics.analyzer_errors,
             "analyzer_warnings": metrics.analyzer_warnings,
             "analyzer_infos": metrics.analyzer_infos,
@@ -67,75 +71,93 @@ def run_metrics_commentary(
         "static_issue_count": summary.static_issue_count,
     }
 
-    user_block = f"""You evaluate one LLM code output for a research dashboard.
+    user_block = f"""You grade ONE model submission for a research code-evaluation dashboard.
 
-Claimed model label (for context only): {llm_source}
-User task prompt:
-{_truncate(user_prompt, 2500)}
+=== TASK PROMPT (the user’s request — this is the bar you grade against) ===
+{_truncate(user_prompt, 4000)}
 
-Analyzer summary (machine): {json.dumps(summary_blob)}
-Timing/size (machine): {json.dumps(metrics_blob)}
+=== WHICH OUTPUT YOU ARE GRADING ===
+The submission below is labeled as: **{llm_source}** (for context only).
+Judge only whether the **code** fulfills the **TASK PROMPT** above — not generic code quality in isolation.
 
-Code sample (may be truncated):
-{_truncate(code, 8000)}
+=== SUBMITTED CODE ===
+{_truncate(code, 12000)}
 
-The human may have already set a manual faithfulness score in the UI. manual_faithfulness_already_set={manual_faithfulness_set!s}
+=== TOOLCHAIN RESULTS (measured by our Kotlin/Flutter pipeline — cite these in metrics_comment) ===
+Summary: {json.dumps(summary_blob)}
+Metrics: {json.dumps(metrics_blob)}
 
-Reply with ONE JSON object only, no markdown fences, keys:
-- "faithfulness_score_1_5": integer 1-5 how well the code matches the task prompt, or null if you refuse
-- "faithfulness_note": one short sentence explaining the score (or empty if null)
-- "metrics_comment": 2-4 sentences interpreting static health, compile status, and efficiency signals for someone choosing between models; plain language
+Manual faithfulness already chosen in the UI: {manual_faithfulness_set!s}
+(If true, still output your scores for transparency; the UI may prefer the human rating for ranking.)
 
-If manual_faithfulness_already_set is true, still output faithfulness_score_1_5 and faithfulness_note as your independent estimate for transparency, but the dashboard may not use your score for ranking."""
+---
 
-    import warnings
+Respond with **one JSON object only** (no markdown fences, no text outside JSON), keys:
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        import google.generativeai as genai
+1) "faithfulness_score_0_100" (integer, required): 0–100 how completely and correctly this submission satisfies the **TASK PROMPT**.
+   - Use the **full range**. Do **not** default to ~20 or cluster scores unless every submission truly deserves that.
+   - 0–20: largely misses or contradicts the task; 21–40: partial attempt with major gaps; 41–60: addresses core ask but incomplete or flawed;
+     61–80: solid match with minor gaps; 81–100: fulfills stated requirements well (allow <100 if metrics show serious compile/static issues that block the task).
 
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(
-        model_id,
-        system_instruction=(
-            "You output only valid JSON objects. No markdown, no prose outside JSON."
-        ),
+2) "faithfulness_note" (string): 1–3 sentences referencing **specific** parts of the TASK PROMPT vs what the code actually does.
+
+3) "metrics_comment" (string): 3–7 sentences interpreting **compilable**, **error_count**, **static_issue_count**, analyzer error/warning/info counts, durations, and LOC — what they imply for reliability and how this compares to what a strong solution would look like."""
+
+    system_msg = (
+        "You output only a single valid JSON object. No markdown code fences, no preamble or postfix."
     )
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": user_block},
+    ]
+
     try:
         try:
-            response = model.generate_content(
-                user_block,
-                request_options={"timeout": timeout},
-            )
-        except TypeError:
-            response = model.generate_content(user_block)
-        text = getattr(response, "text", None) or ""
-        if not text and response.candidates:
-            cand = response.candidates[0]
-            content = getattr(cand, "content", None)
-            if content and getattr(content, "parts", None):
-                text = "".join(getattr(p, "text", "") for p in content.parts)
-        text = (text or "").strip()
+            mt = int(os.getenv("COMMENTARY_MAX_TOKENS", "4096"))
+        except ValueError:
+            mt = 4096
+        mt = max(256, min(8192, mt))
+        text, used_model = openrouter_chat_completion(
+            messages=messages,
+            model=model_id,
+            timeout=timeout,
+            max_tokens=mt,
+            temperature=0.25,
+        )
         m = _JSON_BLOCK.search(text)
         if not m:
             return AiCommentary(
                 error="Model returned no parseable JSON.",
-                provider=model_id,
+                provider=used_model,
             )
         data = json.loads(m.group(0))
-        score = data.get("faithfulness_score_1_5")
-        if score is not None:
+
+        score_100 = data.get("faithfulness_score_0_100")
+        score_15 = data.get("faithfulness_score_1_5")
+        out_100: Optional[int] = None
+        out_15: Optional[int] = None
+
+        if score_100 is not None:
             try:
-                score = int(score)
-                if score < 1 or score > 5:
-                    score = None
+                v = int(float(score_100))
+                out_100 = max(0, min(100, v))
             except (TypeError, ValueError):
-                score = None
+                out_100 = None
+        if out_100 is None and score_15 is not None:
+            try:
+                v5 = int(score_15)
+                v5 = max(1, min(5, v5))
+                out_15 = v5
+                out_100 = v5 * 20
+            except (TypeError, ValueError):
+                out_15 = None
+
         return AiCommentary(
-            faithfulness_score_1_5=score,
+            faithfulness_score_0_100=out_100,
+            faithfulness_score_1_5=out_15,
             faithfulness_note=str(data.get("faithfulness_note") or "")[:2000],
-            metrics_comment=str(data.get("metrics_comment") or "")[:4000],
-            provider=model_id,
+            metrics_comment=str(data.get("metrics_comment") or "")[:6000],
+            provider=used_model,
         )
     except Exception as e:
         msg = str(e).strip() or type(e).__name__

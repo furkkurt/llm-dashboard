@@ -1,3 +1,5 @@
+import hashlib
+import json
 import math
 import os
 import sys
@@ -16,32 +18,8 @@ from backend.env_bootstrap import load_dashboard_env
 # Same as API: `.env` then `local.env` (override); never written by setup.sh.
 load_dashboard_env()
 
-from backend.flutter_extract import split_compare_transcript
 from backend.models import PaperScores
 from backend.paper_scoring import DEFAULT_WEIGHTS, composite_with_weights
-
-# Minimal 3-way sheet so Compare works without pasting (smoke test).
-_SMOKE_COMPARE_SHEET = """PROMPT:
-create a basic notepad app using flutter.
-GEMINI:
-import 'package:flutter/material.dart';
-
-void main() {
-  runApp(const MaterialApp(home: Scaffold(body: Center(child: Text('Gemini')))));
-}
-GPT:
-import 'package:flutter/material.dart';
-
-void main() {
-  runApp(const MaterialApp(home: Scaffold(body: Center(child: Text('GPT')))));
-}
-CLAUDE:
-import 'package:flutter/material.dart';
-
-void main() {
-  runApp(const MaterialApp(home: Scaffold(body: Center(child: Text('Claude')))));
-}
-"""
 
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 ANALYZE_URL = f"{API_BASE}/analyze"
@@ -59,12 +37,9 @@ st.set_page_config(page_title="LLM Evaluation Dashboard", layout="wide")
 st.markdown(
     r"""
     <style>
-    .terminal-pane {
-        background: var(--st-secondary-background-color, #f0f2f6);
-        border: 1px solid rgba(49, 51, 63, 0.12);
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    /* Hide Streamlit header “running” indicator next to Stop (in-page progress is enough). */
+    [data-testid="stStatusWidget"] {
+        display: none !important;
     }
     .kpi-card {
         background: var(--st-secondary-background-color, #f0f2f6);
@@ -80,28 +55,6 @@ st.markdown(
         padding: 1rem;
         margin-bottom: 1rem;
     }
-    [data-testid="stSpinner"] svg {
-        display: none !important;
-    }
-    [data-testid="stSpinner"] > div {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    [data-testid="stSpinner"] > div::before {
-        content: "";
-        display: inline-block;
-        width: 1.1rem;
-        height: 1.1rem;
-        border: 2px solid rgba(128,128,128,0.35);
-        border-top-color: var(--st-primary-color, #ff4b4b);
-        border-radius: 50%;
-        animation: compare-spin 0.75s linear infinite;
-        flex-shrink: 0;
-    }
-    @keyframes compare-spin {
-        to { transform: rotate(360deg); }
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -116,6 +69,10 @@ if "model_results" not in st.session_state:
     st.session_state.model_results = {}
 if "history_rows" not in st.session_state:
     st.session_state.history_rows = []
+if "ai_commentary_summary" not in st.session_state:
+    st.session_state.ai_commentary_summary = ""
+if "target_language_sel" not in st.session_state:
+    st.session_state.target_language_sel = "Kotlin"
 for legacy in ("analysis_result", "code_area"):
     st.session_state.pop(legacy, None)
 
@@ -139,6 +96,21 @@ def _fmt_ms(v) -> str:
         return "—"
 
 
+def _cell_str(v) -> str:
+    """Streamlit/Arrow rejects object columns that mix int and str; normalize for dataframes."""
+    if v is None:
+        return "—"
+    if isinstance(v, float) and not math.isfinite(v):
+        return "—"
+    return str(v)
+
+
+def _arrow_safe_dataframe(records: list[dict]) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
+    return pd.DataFrame([{k: _cell_str(v) for k, v in row.items()} for row in records])
+
+
 def render_metrics_table(metrics: dict | None) -> None:
     if not metrics:
         return
@@ -160,18 +132,12 @@ def render_metrics_table(metrics: dict | None) -> None:
         "Pub get command": metrics.get("pub_get_command_used") or "—",
     }
     st.dataframe(
-        pd.DataFrame({"Metric": list(rows.keys()), "Value": list(rows.values())}),
-        use_container_width=True,
+        pd.DataFrame(
+            {"Metric": list(rows.keys()), "Value": [_cell_str(v) for v in rows.values()]}
+        ),
+        width="stretch",
         hide_index=True,
     )
-
-
-def _faithfulness_choice(label: str, key: str) -> int | None:
-    opts = ["- not rated", "1", "2", "3", "4", "5"]
-    pick = st.selectbox(label, opts, index=0, key=key)
-    if pick.startswith("-"):
-        return None
-    return int(pick)
 
 
 def _paper_from_metrics(metrics: dict | None) -> PaperScores | None:
@@ -183,36 +149,40 @@ def _paper_from_metrics(metrics: dict | None) -> PaperScores | None:
         return None
 
 
-def render_ai_commentary_block(result: dict, metrics: dict | None) -> None:
-    ac = result.get("ai_commentary") or (metrics or {}).get("ai_commentary")
-    if not isinstance(ac, dict):
-        return
-    # API omits null fields; treat "any Gemini payload" as worth showing
-    if not ac:
-        return
-    with st.expander("AI commentary (Gemini)", expanded=False):
+def _format_compare_ai_commentary(results: dict) -> str:
+    """Aggregate AI commentary from a Compare `model_results` dict for the sidebar textbox."""
+    chunks: list[str] = []
+    for model_name, entry in results.items():
+        if entry.get("status") != "success":
+            continue
+        data = entry.get("data") or {}
+        ac = data.get("ai_commentary")
+        if not isinstance(ac, dict):
+            continue
+        sub: list[str] = [f"━━ {model_name} ━━"]
         if ac.get("error"):
-            st.warning(str(ac["error"]))
-        fs = ac.get("faithfulness_score_1_5")
-        if fs is not None:
-            st.caption(
-                f"AI-estimated prompt faithfulness: **{fs}** / 5 "
-                "(used in composite only when manual faithfulness is left unrated)."
-            )
-        if ac.get("faithfulness_note"):
-            st.markdown(str(ac["faithfulness_note"]))
-        if ac.get("metrics_comment"):
-            st.markdown(str(ac["metrics_comment"]))
-        if not (
-            ac.get("error")
-            or fs is not None
-            or ac.get("faithfulness_note")
-            or ac.get("metrics_comment")
-        ):
-            st.info(
-                "Commentary was requested but the model returned no usable text or score. "
-                "Check quota, `GOOGLE_API_KEY` in `llm-dashboard/local.env` or `.env`, and restart the API after editing."
-            )
+            sub.append(f"[Error] {ac['error']}")
+        s100 = ac.get("faithfulness_score_0_100")
+        s15 = ac.get("faithfulness_score_1_5")
+        if s100 is not None:
+            sub.append(f"Task adherence vs your prompt: {s100} / 100")
+        elif s15 is not None:
+            sub.append(f"Task adherence (legacy scale): {s15} / 5")
+        fn = str(ac.get("faithfulness_note") or "").strip()
+        if fn:
+            sub.append("")
+            sub.append("Prompt alignment:")
+            sub.append(fn)
+        mc = str(ac.get("metrics_comment") or "").strip()
+        if mc:
+            sub.append("")
+            sub.append("Stats / toolchain:")
+            sub.append(mc)
+        if len(sub) > 1:
+            chunks.append("\n".join(sub))
+    if not chunks:
+        return ""
+    return "\n\n".join(chunks)
 
 
 def render_paper_scores(paper: PaperScores | None) -> None:
@@ -232,7 +202,7 @@ def render_paper_scores(paper: PaperScores | None) -> None:
         st.metric(
             "Faithfulness",
             "—" if fv is None else fv,
-            help="Manual 1-5 or AI estimate (if auto commentary on) mapped to 0-100 when set.",
+            help="AI 0–100 from OpenRouter when Compare uses AI commentary; else neutral **50** in composite.",
         )
         if paper and not paper.faithfulness_rated:
             st.caption("Unrated: composite uses **50** on this axis.")
@@ -245,9 +215,9 @@ def render_rule_histogram(title: str, hist: dict) -> None:
         return
     st.markdown(f"**{title}**")
     df = pd.DataFrame(
-        [{"rule": k, "count": v} for k, v in sorted(hist.items(), key=lambda x: -x[1])[:25]]
+        [{"rule": k, "count": _cell_str(v)} for k, v in sorted(hist.items(), key=lambda x: -x[1])[:25]]
     )
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 
 
 def render_one_model_panel(model_name: str, result: dict) -> None:
@@ -274,7 +244,6 @@ def render_one_model_panel(model_name: str, result: dict) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
     render_paper_scores(_paper_from_metrics(metrics))
-    render_ai_commentary_block(result, metrics)
 
     if metrics:
         with st.expander("Full timing and size metrics", expanded=False):
@@ -351,103 +320,141 @@ def _render_compare_winner_banner(results: dict) -> None:
         st.success(f"Same default composite **{best:.2f}** / 100 for all tied models.")
 
 
+def _snippet_json_for_download() -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "snippet_id": str(st.session_state.get("snippet_id_input", "")).strip(),
+            "target_language": str(st.session_state.get("target_language_sel", "Kotlin")),
+            "prompt": str(st.session_state.get("prompt_area", "")),
+            "code_chatgpt": str(st.session_state.get("code_chatgpt", "")),
+            "code_claude": str(st.session_state.get("code_claude", "")),
+            "code_gemini": str(st.session_state.get("code_gemini", "")),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _parse_snippet_upload(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValueError("JSON root must be an object")
+    lang = data.get("target_language")
+    if lang is not None and lang not in ("Kotlin", "Flutter"):
+        raise ValueError("target_language must be Kotlin or Flutter if set")
+    out = {
+        "prompt": str(data.get("prompt", "")),
+        "code_chatgpt": str(data.get("code_chatgpt", data.get("code_gpt", ""))),
+        "code_claude": str(data.get("code_claude", "")),
+        "code_gemini": str(data.get("code_gemini", "")),
+    }
+    if "snippet_id" in data and data["snippet_id"] is not None:
+        out["snippet_id"] = str(data["snippet_id"])
+    if lang in ("Kotlin", "Flutter"):
+        out["target_language"] = lang
+    return out
+
+
 tab_compare, tab_history = st.tabs(["Compare models", "History & winner"])
 
 with tab_compare:
     if "_pending_snippet_id" in st.session_state:
         st.session_state["snippet_id_input"] = st.session_state.pop("_pending_snippet_id")
+    if "_pending_compare_snippet" in st.session_state:
+        d = st.session_state.pop("_pending_compare_snippet")
+        if isinstance(d, dict):
+            st.session_state["prompt_area"] = str(d.get("prompt", ""))
+            st.session_state["code_chatgpt"] = str(d.get("code_chatgpt", ""))
+            st.session_state["code_claude"] = str(d.get("code_claude", ""))
+            st.session_state["code_gemini"] = str(d.get("code_gemini", ""))
+            if "snippet_id" in d:
+                st.session_state["snippet_id_input"] = str(d["snippet_id"])
+            if d.get("target_language") in ("Kotlin", "Flutter"):
+                st.session_state["target_language_sel"] = d["target_language"]
+    # Apply AI text *before* the text_area widget mounts (same-run writes after widget are forbidden).
+    if "_pending_ai_commentary" in st.session_state:
+        st.session_state["ai_commentary_summary"] = st.session_state.pop("_pending_ai_commentary")
 
     left_col, middle_col, right_col = st.columns([1, 2, 2], gap="large")
 
     with left_col:
         st.subheader("Settings")
-        target_language = st.selectbox("Target Language", ["Kotlin", "Flutter"])
+        target_language = st.selectbox(
+            "Target Language", ["Kotlin", "Flutter"], key="target_language_sel"
+        )
         snippet_id = st.text_input(
             "Snippet ID",
             placeholder="e.g. notepad_compare_01 (shared across models for this run)",
             key="snippet_id_input",
         )
-        st.markdown("**Optional faithfulness** (istemlere sadakati, 1-5)")
-        st.caption("Leave unrated to use neutral faithfulness in the default composite.")
-        fc = _faithfulness_choice("ChatGPT", "faith_chatgpt")
-        fcl = _faithfulness_choice("Claude", "faith_claude")
-        fg = _faithfulness_choice("Gemini", "faith_gemini")
-        auto_commentary = st.checkbox(
-            "Auto faithfulness + AI commentary (Gemini)",
+        use_ai_faith = st.checkbox(
+            "Use AI for task faithfulness & commentary (OpenRouter)",
             value=False,
             key="auto_commentary",
-            help="Uses GOOGLE_API_KEY: estimates prompt adherence (1-5) when sliders are unrated, "
-            "and adds a short metrics summary. Not a ground-truth judge.",
+            help="Scores each model’s code vs your prompt (0–100) and comments on compile/analyzer stats. Requires OPENROUTER_API_KEY.",
         )
-        st.caption(
-            "Set `GOOGLE_API_KEY` in **llm-dashboard/local.env** (recommended) or `.env`, then **restart uvicorn**."
-        )
-        st.caption("Paste one prompt and each model’s code in the middle column. API: " + API_BASE)
-
-    with middle_col:
-        st.markdown('<div class="terminal-pane">', unsafe_allow_html=True)
-        st.subheader("Prompt and model outputs")
-        if target_language == "Flutter":
-            st.caption(
-                "Paste the **full** model output when you can: fenced `main.dart` and `pubspec.yaml` "
-                "are extracted. Missing packages are auto-added with **dart pub add** when the analyzer reports them."
-            )
-            st.caption(
-                "**Compare sheet:** labels `PROMPT:`, `GEMINI:`, `GPT:`, `CLAUDE:` each on their own line "
-                "are stripped from code; leading prose is cut before the first `import` / `void main`."
-            )
-            if st.button("Load smoke test sheet", help="Tiny valid Flutter in all 3 model boxes + prompt"):
-                parts = split_compare_transcript(_SMOKE_COMPARE_SHEET)
-                st.session_state.prompt_area = parts.get("prompt", "")
-                st.session_state.code_gemini = parts.get("gemini", "")
-                st.session_state.code_chatgpt = parts.get("gpt", "")
-                st.session_state.code_claude = parts.get("claude", "")
-                st.session_state["_pending_snippet_id"] = "notepad_smoke"
-                st.rerun()
-            bulk_sheet = st.text_area(
-                "Optional: full PROMPT/GEMINI/GPT/CLAUDE sheet (paste once, then split)",
-                height=100,
-                placeholder="PROMPT:\n...\nGEMINI:\nimport ...\nGPT:\n...\nCLAUDE:\n...",
-                key="bulk_compare_sheet",
-            )
-            if st.button("Split sheet into prompt + ChatGPT / Claude / Gemini boxes"):
-                parts = split_compare_transcript(str(st.session_state.get("bulk_compare_sheet", "")))
-                if not parts or len(parts) < 2:
-                    st.warning(
-                        "Could not parse sections. Put each label on its own line: "
-                        "PROMPT:, GEMINI:, GPT:, CLAUDE: (case-insensitive)."
-                    )
-                else:
-                    if "prompt" in parts:
-                        st.session_state.prompt_area = parts["prompt"]
-                    if "gemini" in parts:
-                        st.session_state.code_gemini = parts["gemini"]
-                    if "gpt" in parts:
-                        st.session_state.code_chatgpt = parts["gpt"]
-                    if "claude" in parts:
-                        st.session_state.code_claude = parts["claude"]
-                    if not str(st.session_state.get("snippet_id_input", "")).strip():
-                        st.session_state["_pending_snippet_id"] = "compare_sheet"
-                    st.success("Filled prompt and model boxes. Run COMPARE MODELS when ready.")
-                    st.rerun()
         st.text_area(
-            "Prompt (shared)",
-            height=160,
-            placeholder="Paste the exact prompt you used with each model...",
-            key="prompt_area",
+            "AI output (fills after Compare when option above is on)",
+            height=260,
+            key="ai_commentary_summary",
+            disabled=True,
+            help="Shows task scores and text from the last Compare run.",
         )
-        for model_name, key in MODEL_ORDER:
-            st.text_area(
-                f"{model_name} - paste code here",
-                height=140,
-                placeholder=f"Kotlin or Dart output from {model_name}...",
-                key=key,
+        if not use_ai_faith:
+            st.caption("Turn on the checkbox and run **COMPARE MODELS** to populate this box.")
+        st.caption(
+            "Keys: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` in **local.env** or `.env`. API: " + API_BASE
+        )
+
+    run_clicked = False
+    with middle_col:
+        with st.container(border=True):
+            st.subheader("Prompt and model outputs")
+            st.caption(
+                "Save or restore all four inputs (and snippet id / language) with **Download** / **Upload**."
             )
+            du1, du2 = st.columns(2)
+            with du1:
+                st.download_button(
+                    label="Download snippet (.json)",
+                    data=_snippet_json_for_download(),
+                    file_name="llm-eval-snippet.json",
+                    mime="application/json",
+                    width="stretch",
+                    help="Saves prompt, ChatGPT / Claude / Gemini code, snippet id, and target language.",
+                )
+            with du2:
+                up = st.file_uploader(
+                    "Upload snippet (.json)",
+                    type=["json"],
+                    key="snippet_json_upload",
+                    help="Restores the four text areas (and optional snippet id / language).",
+                )
+                if up is not None:
+                    digest = hashlib.sha256(up.getvalue()).hexdigest()
+                    if digest != st.session_state.get("_snippet_json_digest"):
+                        try:
+                            parsed = _parse_snippet_upload(json.loads(up.getvalue().decode("utf-8")))
+                            st.session_state["_snippet_json_digest"] = digest
+                            st.session_state["_pending_compare_snippet"] = parsed
+                            st.rerun()
+                        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as e:
+                            st.error(f"Could not load snippet file: {e}")
+            st.text_area(
+                "Prompt (shared)",
+                height=160,
+                placeholder="Paste the exact prompt you used with each model...",
+                key="prompt_area",
+            )
+            for model_name, key in MODEL_ORDER:
+                st.text_area(
+                    f"{model_name} - paste code here",
+                    height=140,
+                    placeholder=f"Kotlin or Dart output from {model_name}...",
+                    key=key,
+                )
 
-        run_clicked = st.button("COMPARE MODELS", type="primary", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    faith_by_model = {"ChatGPT": fc, "Claude": fcl, "Gemini": fg}
+            run_clicked = st.button("COMPARE MODELS", type="primary", width="stretch")
 
     with right_col:
         loading_slot = st.empty()
@@ -468,41 +475,53 @@ with tab_compare:
                     st.error("Paste code in at least one model box (ChatGPT, Claude, or Gemini).")
                 else:
                     new_results: dict[str, dict] = {}
+                    n = len(to_run)
                     with loading_slot:
-                        with st.spinner("Running analysis for each model..."):
-                            for model_name, code in to_run:
-                                payload = {
-                                    "llm_source": model_name,
-                                    "target_language": target_language,
-                                    "snippet_id": sid,
-                                    "prompt": prompt_text,
-                                    "code": code,
-                                }
-                                fs = faith_by_model.get(model_name)
-                                if fs is not None:
-                                    payload["faithfulness_score_1_5"] = fs
-                                if st.session_state.get("auto_commentary"):
-                                    payload["auto_commentary"] = True
-                                try:
-                                    response = requests.post(
-                                        ANALYZE_URL, json=payload, timeout=REQUEST_TIMEOUT_SEC
-                                    )
-                                    if response.status_code != 200:
-                                        new_results[model_name] = {
-                                            "status": "error",
-                                            "detail": _json_detail(response),
-                                        }
-                                    else:
-                                        new_results[model_name] = {
-                                            "status": "success",
-                                            "data": response.json(),
-                                        }
-                                except requests.RequestException as e:
+                        prog = st.progress(0.0, text="Starting…")
+                        for i, (model_name, code) in enumerate(to_run):
+                            prog.progress(
+                                i / max(n, 1),
+                                text=f"Analyzing {model_name} ({i + 1}/{n})…",
+                            )
+                            payload = {
+                                "llm_source": model_name,
+                                "target_language": target_language,
+                                "snippet_id": sid,
+                                "prompt": prompt_text,
+                                "code": code,
+                            }
+                            if st.session_state.get("auto_commentary"):
+                                payload["auto_commentary"] = True
+                            try:
+                                response = requests.post(
+                                    ANALYZE_URL, json=payload, timeout=REQUEST_TIMEOUT_SEC
+                                )
+                                if response.status_code != 200:
                                     new_results[model_name] = {
                                         "status": "error",
-                                        "detail": str(e),
+                                        "detail": _json_detail(response),
                                     }
+                                else:
+                                    new_results[model_name] = {
+                                        "status": "success",
+                                        "data": response.json(),
+                                    }
+                            except requests.RequestException as e:
+                                new_results[model_name] = {
+                                    "status": "error",
+                                    "detail": str(e),
+                                }
+                        prog.progress(1.0, text="Done.")
                     st.session_state.model_results = new_results
+                    if st.session_state.get("auto_commentary"):
+                        txt = _format_compare_ai_commentary(new_results)
+                        st.session_state["_pending_ai_commentary"] = (
+                            txt
+                            if txt.strip()
+                            else "AI commentary was enabled but no text was returned. Check API keys and /health/commentary."
+                        )
+                    else:
+                        st.session_state["_pending_ai_commentary"] = ""
                     st.rerun()
 
         results = st.session_state.model_results
@@ -576,7 +595,7 @@ with tab_compare:
                     chart_composite[model_name] = float(cc)
 
             st.caption("*Default weights: compilability 0.30, static 0.35, efficiency 0.15, faithfulness 0.20 (see manual.md).")
-            st.dataframe(pd.DataFrame(cmp_rows), use_container_width=True, hide_index=True)
+            st.dataframe(_arrow_safe_dataframe(cmp_rows), width="stretch", hide_index=True)
 
             if chart_composite:
                 st.markdown("#### Default composite score by model")
@@ -600,7 +619,7 @@ with tab_compare:
 with tab_history:
     st.markdown(
         "Metric definitions and formulas: **`manual.md`** in the `llm-dashboard` folder. "
-        "Load past runs, adjust faithfulness, then pick weights to declare a winner per snippet."
+        "Load past runs, then pick weights to declare a winner per snippet."
     )
     f1, f2, f3 = st.columns(3)
     with f1:
@@ -644,35 +663,7 @@ with tab_history:
                     "faith_1_5": row.get("faithfulness_score", "—"),
                 }
             )
-        st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
-
-        st.subheader("Update faithfulness")
-        default_id = int(display_rows[0]["id"]) if display_rows else 1
-        patch_id = st.number_input("Result id", min_value=1, step=1, value=default_id, key="patch_id")
-        score_choices = ["(unchanged)", "1", "2", "3", "4", "5"]
-        patch_score_pick = st.selectbox("Faithfulness 1-5", score_choices, key="patch_score")
-        patch_notes = st.text_area("Notes (optional)", key="patch_notes", height=80)
-        if st.button("Apply PATCH", key="apply_patch"):
-            body: dict = {}
-            if patch_score_pick != "(unchanged)":
-                body["faithfulness_score_1_5"] = int(patch_score_pick)
-            if patch_notes.strip():
-                body["faithfulness_notes"] = patch_notes.strip()
-            if not body:
-                st.warning("Choose a new score and/or enter notes.")
-            else:
-                try:
-                    pr = requests.patch(
-                        f"{API_BASE}/results/{int(patch_id)}",
-                        json=body,
-                        timeout=60,
-                    )
-                    if pr.status_code != 200:
-                        st.error(_json_detail(pr))
-                    else:
-                        st.success("Updated. Reload history to refresh the table.")
-                except requests.RequestException as e:
-                    st.error(str(e))
+        st.dataframe(_arrow_safe_dataframe(display_rows), width="stretch", hide_index=True)
 
         st.divider()
         st.subheader("Winner (latest row per model for one snippet)")
@@ -752,7 +743,7 @@ with tab_history:
                                     "Model": lm,
                                     "custom composite": "—",
                                     "db id": r["id"],
-                                    "note": "missing paper_scores; PATCH faithfulness or re-run analyze",
+                                    "note": "missing paper_scores; re-run Compare / analyze",
                                 }
                             )
                             continue
@@ -769,8 +760,7 @@ with tab_history:
                                 "note": "",
                             }
                         )
-                    dfw = pd.DataFrame(win_rows)
-                    st.dataframe(dfw, use_container_width=True, hide_index=True)
+                    st.dataframe(_arrow_safe_dataframe(win_rows), width="stretch", hide_index=True)
                     numeric = [
                         x
                         for x in win_rows

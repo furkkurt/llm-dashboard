@@ -1,0 +1,21 @@
+=== flutter pub get stdout ===
+Resolving dependencies...
+Downloading packages...
++ characters 1.4.0 (1.4.1 available)
++ collection 1.19.1
++ flutter 0.0.0 from sdk flutter
++ material_color_utilities 0.11.1 (0.13.0 available)
++ meta 1.17.0 (1.18.2 available)
++ sky_engine 0.0.0 from sdk flutter
++ vector_math 2.2.0 (2.3.0 available)
+Changed 7 dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== stderr ===
+
+
+=== dart analyze (round 0) stdout ===
+
+=== stderr ===
+
