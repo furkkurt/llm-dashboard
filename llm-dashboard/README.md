@@ -14,7 +14,7 @@ A small research tool for **comparing LLM-generated code** (e.g. ChatGPT, Claude
 - **Persist runs** in SQLite so you can revisit results, patch faithfulness later, and explore “history & winner” style views in the UI.
 - **Stay local-first**: you control API keys, data stays on disk under `results/` unless you export.
 
-**Non-goals:** proving statistical significance, replacing security review, or claiming Gemini’s commentary is authoritative.
+**Non-goals:** proving statistical significance, replacing security review, or treating optional AI commentary as authoritative.
 
 ---
 
@@ -22,11 +22,12 @@ A small research tool for **comparing LLM-generated code** (e.g. ChatGPT, Claude
 
 | Piece | Role |
 |--------|------|
-| **`backend/main.py`** | FastAPI app: `/analyze`, `/generate`, `/results`, `/health/gemini`, etc. |
+| **`backend/main.py`** | FastAPI app: `/analyze`, `/generate`, `/results`, `/health/commentary`, etc. |
 | **`backend/analyzer.py`** | Orchestrates Kotlin/Flutter temp projects, compile/analyze, timing metrics. |
 | **`backend/database.py`** | SQLite (`results/results.db` by default); upsert on same logical run key. |
 | **`backend/paper_scoring.py`** | Builds 0–100 dimension scores + default composite from analyzer output. |
-| **`backend/commentary.py`** | Optional Gemini JSON pass when `auto_commentary=true`. |
+| **`backend/commentary.py`** | Optional OpenRouter chat → JSON when `auto_commentary=true`. |
+| **`backend/openrouter_client.py`** | OpenAI-compatible client pointed at OpenRouter’s base URL. |
 | **`frontend/app.py`** | Streamlit UI: paste prompt/code, call API, show scores, history, compare. |
 | **`runners/`** | Helpers (e.g. Detekt invocation). |
 | **`temp/runs/`** | Ephemeral project trees per analysis. |
@@ -53,7 +54,7 @@ There is **no** nested `llm-dashboard/llm-dashboard` in source control. If your 
 - **Python 3.10+** (3.12+ recommended; project uses a local `.venv`).
 - **Kotlin path**: install **`tools/detekt-cli.jar`** from [Detekt releases](https://github.com/detekt/detekt/releases) (and set `DETEKT_JAR` in env if not using the default layout—see `.env.example`).
 - **Flutter path**: a working **Flutter/Dart** SDK on `PATH` so `flutter` / `dart` can run (for Flutter snippets).
-- **Optional**: `GOOGLE_API_KEY` for Gemini commentary and `/health/gemini` (see below).
+- **Optional**: **[OpenRouter](https://openrouter.ai)** API key (`OPENROUTER_API_KEY`) for AI commentary, `/health/commentary`, and the UI **Generate** lane labeled “Gemini” (still uses your chosen `OPENROUTER_MODEL`, often a Google model slug).
 
 ---
 
@@ -101,6 +102,14 @@ This script:
 2. Starts **Streamlit** on **`8501`** (override with `STREAMLIT_PORT`).
 3. When you stop Streamlit (Ctrl+C), it tries to kill the uvicorn child process.
 
+To stop without leaving listeners (from another terminal):
+
+```bash
+./stop.sh
+```
+
+Uses **`fuser`** or **`lsof`** to free `API_PORT` and `STREAMLIT_PORT`, then `pkill` patterns for this app’s uvicorn/streamlit. Set the same env vars as `start.sh` if you use non-default ports.
+
 ### Option B — two terminals (easier debugging)
 
 **Terminal 1 — API**
@@ -134,7 +143,7 @@ Open the Streamlit URL (usually **http://localhost:8501**). API docs: **http://1
 1. Choose target language (**Kotlin** or **Flutter**).
 2. Set **LLM source** and **snippet id** (shared id lets you align the same task across models).
 3. Paste the **prompt** and each model’s **code** (Flutter: full outputs help; fenced `main.dart` / `pubspec.yaml` are handled).
-4. Optionally set **faithfulness** sliders or enable **auto faithfulness + AI commentary (Gemini)**.
+4. Optionally set **faithfulness** sliders or enable **auto faithfulness + AI commentary (OpenRouter)**.
 5. **Analyze** / **Compare** — results go to SQLite and appear in metrics + **History & winner**.
 
 Faithfulness unrated → composite uses a **neutral 50** on that axis (see `manual.md`).
@@ -146,9 +155,9 @@ Faithfulness unrated → composite uses a **neutral 50** on that axis (see `manu
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | Service metadata + links |
-| GET | `/health/gemini` | Tiny Gemini call; verifies `GOOGLE_API_KEY` / model |
+| GET | `/health/commentary` | Tiny OpenRouter chat; verifies `OPENROUTER_API_KEY` / model |
 | POST | `/analyze` | Run toolchain + scoring; optional `auto_commentary` |
-| POST | `/generate` | Optional LLM generation (OpenAI/Anthropic/Gemini clients) |
+| POST | `/generate` | Optional LLM generation (OpenAI / Anthropic / OpenRouter for “Gemini” lane) |
 | GET | `/results` | List stored runs (filters optional) |
 | GET | `/results/{id}` | One row |
 | PATCH | `/results/{id}` | Update faithfulness / notes; recompute paper scores |
@@ -157,12 +166,12 @@ Full metric definitions, weights, and limitations: **[manual.md](manual.md)**.
 
 ---
 
-## Verify Gemini / keys
+## Verify OpenRouter / keys
 
 With the API running:
 
-- Browser: **http://127.0.0.1:8000/health/gemini** — `ok: true` means the configured model responded.
-- CLI from project root: `python -m backend.gemini_check`  
+- Browser: **http://127.0.0.1:8000/health/commentary** — `ok: true` means OpenRouter returned a reply for `OPENROUTER_MODEL`. Legacy alias: `/health/gemini`.
+- CLI from project root: `python -m backend.openrouter_check`  
   Response includes paths for `.env` / `local.env` presence (for debugging empty keys).
 
 ---
@@ -185,7 +194,8 @@ pytest
 |--------|-------------|
 | **Port 8000 in use** | Find process: `ss -ltnp \| grep 8000` or `lsof -i :8000`, then `kill <pid>`, or change `API_PORT`. |
 | **Streamlit only, analyze fails** | Start uvicorn; UI calls the API over `API_BASE_URL`. |
-| **GOOGLE_API_KEY “empty”** | Save `.env` / `local.env`; use `local.env` for keys; avoid a **second** empty `GOOGLE_API_KEY=` line after a good one (last wins). |
+| **Ports still busy after Ctrl+C** | Run `./stop.sh` (same `API_PORT` / `STREAMLIT_PORT` as `start.sh`). |
+| **OPENROUTER_API_KEY “empty”** | Save `.env` / `local.env`; use `local.env` for keys; avoid a **second** empty `OPENROUTER_API_KEY=` line after a good one (last wins). |
 | **Kotlin analyze missing Detekt** | Place `detekt-cli.jar` under `tools/` or set `DETEKT_JAR`. |
 | **`.env` “disappears”** | Nothing in `setup.sh` removes it; check for manual `cp .env.example .env`, sync tools, or other scripts. Prefer **`local.env`** for secrets. |
 
@@ -204,5 +214,5 @@ pytest
 | Doc | Contents |
 |-----|----------|
 | **This README** | Goals, architecture, run instructions, troubleshooting |
-| **[manual.md](manual.md)** | Score formulas, composite weights, API/storage details, Gemini commentary behavior |
+| **[manual.md](manual.md)** | Score formulas, composite weights, API/storage details, OpenRouter commentary behavior |
 | **`.env.example` / `local.env.example`** | Variable names and layout hints |

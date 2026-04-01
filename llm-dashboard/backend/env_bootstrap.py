@@ -31,7 +31,7 @@ def load_dashboard_env() -> bool:
     return a or b
 
 
-def _merged_env_text_for_google_key() -> str:
+def _merged_env_text() -> str:
     chunks: list[str] = []
     for path in (dashboard_dotenv_path(), local_dashboard_env_path()):
         if not path.is_file():
@@ -43,13 +43,13 @@ def _merged_env_text_for_google_key() -> str:
     return "\n".join(chunks)
 
 
-def google_api_key_line_state() -> str:
+def openrouter_api_key_line_state() -> str:
     """
-    Inspect `.env` + `local.env` on disk (not the editor buffer): 'set' | 'empty' | 'missing' | 'unreadable'.
+    Inspect `.env` + `local.env` for OPENROUTER_API_KEY= ... 'set' | 'empty' | 'missing' | 'unreadable'.
     Last assignment wins across both files (same order as load_dashboard_env).
     Does not return the secret.
     """
-    text = _merged_env_text_for_google_key()
+    text = _merged_env_text()
     if not text.strip():
         for path in (dashboard_dotenv_path(), local_dashboard_env_path()):
             if path.is_file():
@@ -67,7 +67,7 @@ def google_api_key_line_state() -> str:
             continue
         if line.startswith("export "):
             line = line[7:].lstrip()
-        if line.startswith("GOOGLE_API_KEY="):
+        if line.startswith("OPENROUTER_API_KEY="):
             val = line.split("=", 1)[1].strip().strip('"').strip("'")
             if val:
                 last_nonempty = True

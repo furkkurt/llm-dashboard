@@ -35,11 +35,11 @@ You can rate **1 (weak)** … **5 (strong)** adherence to the prompt in the UI. 
 
 If you **do not** rate faithfulness, the default composite uses a **neutral 50** on that axis (`faithfulness_rated: false` in API responses). The optional `faithfulness_0_100` field is then omitted.
 
-### Optional Gemini commentary (`auto_commentary`)
+### Optional AI commentary via OpenRouter (`auto_commentary`)
 
-When `POST /analyze` is called with `auto_commentary: true` and `GOOGLE_API_KEY` is set, the API runs a separate **Gemini** call (same model family as `GOOGLE_MODEL`, default `gemini-2.0-flash`) that returns JSON: an estimated `faithfulness_score_1_5`, a short `faithfulness_note`, and a plain-language `metrics_comment` on compile/static/timing signals.
+When `POST /analyze` is called with `auto_commentary: true` and **`OPENROUTER_API_KEY`** is set, the API calls **[OpenRouter](https://openrouter.ai)**’s OpenAI-compatible **`POST /v1/chat/completions`** with **`OPENROUTER_MODEL`**. The assistant returns JSON: **`faithfulness_score_0_100`** (0–100 vs the user’s task prompt), **`faithfulness_note`**, and **`metrics_comment`** (interpretation of compilable / error counts / analyzer stats / timing). Legacy responses may still send `faithfulness_score_1_5` (mapped to ~0–100 as ×20). The composite uses the 0–100 value when present.
 
-Put the key in **`llm-dashboard/local.env`** (recommended; gitignored, not touched by `setup.sh`) and/or **`.env`**. The loader reads `.env` then **`local.env`** (second wins). `override=True` so file values replace empty shell exports (e.g. `export GOOGLE_API_KEY=`). **Restart uvicorn** after edits.
+Put the key in **`llm-dashboard/local.env`** (recommended; gitignored, not touched by `setup.sh`) and/or **`.env`**. The loader reads `.env` then **`local.env`** (second wins). `override=True` so file values replace empty shell exports (e.g. `export OPENROUTER_API_KEY=`). Optional: `OPENROUTER_BASE_URL`, `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE` for OpenRouter attribution. **Restart uvicorn** after edits.
 
 **Setup script:** `setup.sh` does **not** mention or access your secrets file (no existence check, no copy). It only creates the venv, runs `pip install`, and creates `tools/` / `results/` / `temp/` dirs. Maintain `.env` yourself; `.env.example` lists variable names only.
 
@@ -66,7 +66,7 @@ The **History & winner** tab lets you choose different weights; scores are renor
 
 ## API and storage
 
-- `GET /health/gemini` runs a tiny Gemini `generateContent` call using `GOOGLE_API_KEY` / `GOOGLE_MODEL` (same as AI commentary). The API reads **the saved file on disk**, not unsaved editor buffers—**save `.env`** after editing. Do not define `GOOGLE_API_KEY=` twice; the **last** occurrence wins (a trailing empty line clears the key). CLI: `python -m backend.gemini_check`.
+- `GET /health/commentary` runs a tiny OpenRouter chat completion (same stack as AI commentary) using `OPENROUTER_API_KEY` / `OPENROUTER_MODEL`. Deprecated alias: `GET /health/gemini`. The API reads **the saved file on disk**, not unsaved editor buffers—**save** after editing. Do not define `OPENROUTER_API_KEY=` twice; the **last** occurrence wins (a trailing empty line clears the key). CLI: `python -m backend.openrouter_check`.
 - `POST /analyze` accepts optional `faithfulness_score_1_5`, `faithfulness_notes`, and `auto_commentary` (boolean).
 - `PATCH /results/{id}` updates faithfulness and recomputes `paper_scores` in `metrics_json`.
 - `GET /results` and `GET /results/{id}` return rows including `metrics.paper_scores` when present.

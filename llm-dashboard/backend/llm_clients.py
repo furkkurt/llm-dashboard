@@ -67,37 +67,24 @@ def _anthropic_generate(req: GenerateRequest, system: str, timeout: float) -> st
 
 
 def _gemini_generate(req: GenerateRequest, system: str, timeout: float) -> str:
-    import warnings
+    """UI label 'Gemini': routed via OpenRouter (same key as commentary)."""
+    from backend.openrouter_client import openrouter_chat_completion
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        import google.generativeai as genai
-
-    key = os.getenv("GOOGLE_API_KEY", "").strip()
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
-        raise ValueError("Google API key not configured (GOOGLE_API_KEY).")
-    model_id = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash").strip()
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(
-        model_id,
-        system_instruction=system,
+        raise ValueError("OpenRouter API key not configured (OPENROUTER_API_KEY).")
+    model_id = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001").strip()
+    text, _used = openrouter_chat_completion(
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": req.prompt},
+        ],
+        model=model_id,
+        timeout=timeout,
+        max_tokens=8192,
+        temperature=0.3,
     )
-    try:
-        response = model.generate_content(
-            req.prompt,
-            request_options={"timeout": timeout},
-        )
-    except TypeError:
-        response = model.generate_content(req.prompt)
-    text = getattr(response, "text", None)
-    if text:
-        return text.strip()
-    if response.candidates:
-        cand = response.candidates[0]
-        content = getattr(cand, "content", None)
-        if content and getattr(content, "parts", None):
-            return "".join(getattr(p, "text", "") for p in content.parts).strip()
-    return ""
+    return text
 
 
 def run_generation(req: GenerateRequest) -> GenerateResponse:
