@@ -1,3 +1,8 @@
 .env
 local.env
 .venv/
+
+# Bytecode — never commit; safe to delete, Python regenerates on import
+__pycache__/
+*.py[cod]
+*$py.class
