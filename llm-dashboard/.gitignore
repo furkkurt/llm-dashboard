@@ -1,2 +1,11 @@
 .env
+local.env
 .venv/
+__pycache__/
+*.py[cod]
+*$py.class
+temp/
+results/raw-logs/
+results/exports/
+results/results.db
+.DS_Store
