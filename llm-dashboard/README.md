@@ -52,7 +52,7 @@ There is **no** nested `llm-dashboard/llm-dashboard` in source control. If your 
 ## Prerequisites
 
 - **Python 3.10+** (3.12+ recommended; project uses a local `.venv`).
-- **Kotlin path**: install **`tools/detekt-cli.jar`** from [Detekt releases](https://github.com/detekt/detekt/releases) (and set `DETEKT_JAR` in env if not using the default layout—see `.env.example`).
+- **Kotlin path**: **`setup.sh`** / **`setup.bat`** download the **Kotlin JVM compiler** into **`tools/kotlin/`** (used as `kotlinc`). You still need a **JDK 17+** on `PATH` (`java`). For static analysis, add **`tools/detekt-cli.jar`** from [Detekt releases](https://github.com/detekt/detekt/releases) (and set `DETEKT_JAR` if needed—see `.env.example`). Optional: set **`KOTLIN_HOME`** to override the bundled compiler layout.
 - **Flutter path**: a working **Flutter/Dart** SDK on `PATH` so `flutter` / `dart` can run (for Flutter snippets).
 - **Optional**: **[OpenRouter](https://openrouter.ai)** API key (`OPENROUTER_API_KEY`) for AI commentary, `/health/commentary`, and the UI **Generate** lane labeled “Gemini” (still uses your chosen `OPENROUTER_MODEL`, often a Google model slug).
 
@@ -71,6 +71,9 @@ source .venv/bin/activate
 1. Verify you are in the real project root (`backend/main.py` exists).
 2. Create **`.venv`** if missing and `pip install -r requirements.txt`.
 3. Create **`tools/`**, **`results/`**, **`temp/runs/`**, etc.
+4. Download **Kotlin `kotlinc`** into **`tools/kotlin/`** if missing (override version with env **`KOTLIN_VERSION`**). Warns if **`java`** is not on `PATH`.
+
+Windows **`setup.bat`** does the same (Kotlin via **`scripts/install-kotlin.ps1`**).
 
 It does **not** read, create, or delete **`.env`** or **`local.env`**. You add those yourself.
 
@@ -146,7 +149,7 @@ Open the Streamlit URL (usually **http://localhost:8501**). API docs: **http://1
 4. Optionally set **faithfulness** sliders or enable **auto faithfulness + AI commentary (OpenRouter)**.
 5. **Analyze** / **Compare** — results go to SQLite and appear in metrics + **History & winner**.
 
-Faithfulness unrated → composite uses a **neutral 50** on that axis (see `manual.md`).
+Compare/History **winner** = highest **research composite** (MI + nesting + analyzer cleanliness + faithfulness; see `manual.md` §5).
 
 ---
 
@@ -196,6 +199,7 @@ pytest
 | **Streamlit only, analyze fails** | Start uvicorn; UI calls the API over `API_BASE_URL`. |
 | **Ports still busy after Ctrl+C** | Run `./stop.sh` (same `API_PORT` / `STREAMLIT_PORT` as `start.sh`). |
 | **OPENROUTER_API_KEY “empty”** | Save `.env` / `local.env`; use `local.env` for keys; avoid a **second** empty `OPENROUTER_API_KEY=` line after a good one (last wins). |
+| **`[Errno 2] kotlinc` / Kotlin won’t compile** | Run **`./setup.sh`** or **`setup.bat`** so **`tools/kotlin/bin/kotlinc`** exists; install a **JDK** and ensure **`java`** is on `PATH`. Optional **`KOTLIN_HOME`**. |
 | **Kotlin analyze missing Detekt** | Place `detekt-cli.jar` under `tools/` or set `DETEKT_JAR`. |
 | **`.env` “disappears”** | Nothing in `setup.sh` removes it; check for manual `cp .env.example .env`, sync tools, or other scripts. Prefer **`local.env`** for secrets. |
 
@@ -214,5 +218,5 @@ pytest
 | Doc | Contents |
 |-----|----------|
 | **This README** | Goals, architecture, run instructions, troubleshooting |
-| **[manual.md](manual.md)** | Score formulas, composite weights, API/storage details, OpenRouter commentary behavior |
+| **[manual.md](manual.md)** | Score formulas, MI winner rule, API/storage details, OpenRouter commentary behavior |
 | **`.env.example` / `local.env.example`** | Variable names and layout hints |

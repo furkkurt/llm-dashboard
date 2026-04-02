@@ -63,6 +63,16 @@ def run_metrics_commentary(
             "analyzer_warnings": metrics.analyzer_warnings,
             "analyzer_infos": metrics.analyzer_infos,
             "packages_auto_added": metrics.packages_auto_added,
+            # metrics.md — cross-language code-quality proxies (see metrics.md / metricguide.md)
+            "loc": metrics.loc,
+            "comment_lines": metrics.comment_lines,
+            "lines_of_code_non_comment": metrics.lines_of_code,
+            "avg_cyclomatic_complexity": metrics.avg_cyclomatic_complexity,
+            "comment_ratio": metrics.comment_ratio,
+            "halstead_volume": metrics.halstead_volume,
+            "halstead_difficulty": metrics.halstead_difficulty,
+            "maintainability_index": metrics.maintainability_index,
+            "avg_nesting_depth": metrics.avg_nesting_depth,
         }
 
     summary_blob = {
@@ -101,7 +111,7 @@ Respond with **one JSON object only** (no markdown fences, no text outside JSON)
 
 2) "faithfulness_note" (string): 1–3 sentences referencing **specific** parts of the TASK PROMPT vs what the code actually does.
 
-3) "metrics_comment" (string): 3–7 sentences interpreting **compilable**, **error_count**, **static_issue_count**, analyzer error/warning/info counts, durations, and LOC — what they imply for reliability and how this compares to what a strong solution would look like."""
+3) "metrics_comment" (string): 3–7 sentences interpreting **compilable**, **error_count**, **static_issue_count**, analyzer error/warning/info counts, durations, and LOC. Also briefly relate **avg_cyclomatic_complexity**, **comment_ratio**, **halstead_volume** / **halstead_difficulty**, **maintainability_index**, and **avg_nesting_depth** (when present) to readability, maintainability, and cognitive load as in software-engineering research — not as ground truth, but as structured hints. Say when a metric is missing or null."""
 
     system_msg = (
         "You output only a single valid JSON object. No markdown code fences, no preamble or postfix."

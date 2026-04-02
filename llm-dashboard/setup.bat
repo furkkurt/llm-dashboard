@@ -28,6 +28,25 @@ if not exist "results" mkdir "results"
 if not exist "results\exports" mkdir "results\exports"
 if not exist "results\raw-logs" mkdir "results\raw-logs"
 if not exist "temp\runs" mkdir "temp\runs"
+if not exist "scripts" mkdir "scripts"
+
+REM Kotlin JVM compiler (kotlinc) — same layout as setup.sh: tools\kotlin\bin\kotlinc.bat
+if exist "tools\kotlin\bin\kotlinc.bat" (
+    echo Kotlin compiler already present: tools\kotlin
+) else (
+    echo Installing Kotlin compiler into tools\kotlin ...
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-kotlin.ps1"
+    if errorlevel 1 (
+        echo ERROR: Kotlin install script failed.
+        pause
+        exit /b 1
+    )
+)
+
+where java >nul 2>nul
+if errorlevel 1 (
+    echo WARNING: No java on PATH. Install JDK 17+ ^(or 21 LTS^); kotlinc needs it to compile Kotlin.
+)
 
 REM Check for detekt-cli.jar
 if not exist "tools\detekt-cli.jar" (

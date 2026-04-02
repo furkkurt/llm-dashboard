@@ -39,7 +39,11 @@ These metrics were integrated into our existing evaluation pipeline with minimal
 
 3. **Model Extension**: Updated the `PaperScores` data model to include fields for each new metric while preserving all existing faithfulness-related fields and scoring mechanisms untouched, per requirements.
 
-4. **Result Storage**: Merged newly extracted metrics with existing analysis data before persistence to the database, ensuring all evaluation dimensions remain available for historical comparison and winner determination.
+4. **Result Storage**: Merged newly extracted metrics with existing analysis data before persistence to the database. The dashboard declares a **winner** from **`quality_composite_0_100`** in `paper_scores`, not from the legacy `composite_default_0_100` blend. That composite is implemented in `backend/paper_scoring.py` (`attach_quality_composite`): **Maintainability Index** (clamped to [0, 100], missing → neutral 50), **nesting** score `max(0, min(100, 100 − 15 × avg_nesting_depth))` (missing → 50), **analyzer cleanliness** (same linear penalty as static-analysis health: 12×errors + 3.5×warnings + 0.8×infos, capped 0–100), and **faithfulness** (0–100) **only when rated**; if faithfulness is absent, the first three weights (**0.30 / 0.10 / 0.30**) are renormalized to sum to 1.0.
+
+5. **Heuristic cross-language extraction**: When building `AnalysisMetrics`, `backend/metrics_util.py` calls `backend/cross_language_metrics.compute_cross_language_metrics` on the source string to supply LOC, comment lines, Halstead-style measures, cyclomatic complexity, nesting depth, and MI in a toolchain-consistent way alongside Detekt / Dart analyzer outputs.
+
+6. **Kotlin platform note**: Standalone **kotlinc** runs only for JVM-style Kotlin without Android framework imports (`android.*`, `androidx.*`, `com.google.android.*`); such snippets skip JVM compilation in the temp sandbox (no Android SDK). **Detekt** still runs. This bounds what “compilability” means for mobile-oriented snippets (see `manual.md` §1).
 
 ## Academic Justification
 

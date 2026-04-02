@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from typing import Optional
 
+from backend.cross_language_metrics import compute_cross_language_metrics
 from backend.models import AnalysisMetrics, ErrorItem, StaticFlagItem
 
 
@@ -77,6 +78,10 @@ def build_metrics(
     warn, info, scaffold = severities_from_flags(static_flags)
     dep_count = count_pubspec_dependencies(pubspec_yaml) if pubspec_yaml else 0
 
+    cross = compute_cross_language_metrics(code_source)
+    cl = cross.get("code_lines")
+    lines_non_comment = int(cl) if cl is not None else count_lines_of_code(code_source)
+
     return AnalysisMetrics(
         total_duration_ms=total_duration_ms,
         pub_get_duration_ms=pub_get_duration_ms,
@@ -84,7 +89,9 @@ def build_metrics(
         dependency_resolve_duration_ms=dependency_resolve_duration_ms,
         kotlin_compile_duration_ms=kotlin_compile_duration_ms,
         detekt_duration_ms=detekt_duration_ms,
-        lines_of_code=count_lines_of_code(code_source),
+        lines_of_code=lines_non_comment,
+        loc=cross.get("loc"),
+        comment_lines=cross.get("comment_lines"),
         characters_code=len(code_source),
         dependency_declaration_count=dep_count,
         analyzer_errors=len([e for e in error_log if e.severity == "error"]),
@@ -95,4 +102,10 @@ def build_metrics(
         pub_get_command_used=pub_get_command_used,
         analyzer_rule_histogram=rule_histogram(static_flags, "dart_analyze"),
         detekt_rule_histogram=rule_histogram(static_flags, "detekt"),
+        avg_cyclomatic_complexity=cross.get("avg_cyclomatic_complexity"),
+        comment_ratio=cross.get("comment_ratio"),
+        halstead_volume=cross.get("halstead_volume"),
+        halstead_difficulty=cross.get("halstead_difficulty"),
+        maintainability_index=cross.get("maintainability_index"),
+        avg_nesting_depth=cross.get("avg_nesting_depth"),
     )

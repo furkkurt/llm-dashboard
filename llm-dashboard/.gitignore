@@ -5,6 +5,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 temp/
+# Kotlin compiler downloaded by setup (~80MB); re-run setup.sh / setup.bat to restore
+tools/kotlin/
 results/raw-logs/
 results/exports/
 results/results.db

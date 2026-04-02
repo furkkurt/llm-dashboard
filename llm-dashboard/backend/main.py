@@ -30,7 +30,7 @@ from backend.models import (
     GenerateRequest,
     GenerateResponse,
 )
-from backend.paper_scoring import build_paper_scores, faithfulness_1_5_from_0_100
+from backend.paper_scoring import faithfulness_1_5_from_0_100, recompute_full_paper_scores
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -114,10 +114,7 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
             elif ai_commentary.faithfulness_score_1_5 is not None:
                 faithfulness_final = ai_commentary.faithfulness_score_1_5
 
-        counts: tuple[int | None, int | None, int | None] | None = None
-        if metrics:
-            counts = (metrics.analyzer_errors, metrics.analyzer_warnings, metrics.analyzer_infos)
-        paper = build_paper_scores(
+        paper = recompute_full_paper_scores(
             summary,
             error_log,
             static_flags,
@@ -126,7 +123,7 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
             if faithfulness_0_100_direct is None
             else None,
             faithfulness_0_100_direct=faithfulness_0_100_direct,
-            metrics_counts=counts,
+            metrics=metrics,
         )
         base_m = metrics.model_dump() if metrics else {}
         merged_metrics: dict = {**base_m, "paper_scores": paper.model_dump()}

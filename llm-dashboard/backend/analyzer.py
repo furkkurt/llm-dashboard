@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -9,6 +10,7 @@ from backend.flutter_extract import (
     missing_packages_from_diagnostics,
     prepare_flutter_project,
 )
+from backend.kotlin_toolchain import resolve_kotlinc_argv
 from backend.metrics_util import build_metrics
 from backend.models import AnalyzeRequest, AnalysisSummary, ErrorItem, StaticFlagItem
 from backend.parsers import (
@@ -24,6 +26,16 @@ DETEKT_JAR = os.getenv("DETEKT_JAR", str(_ROOT / "tools" / "detekt-cli.jar"))
 
 _MAX_PUB_RESOLVE_ROUNDS = 10
 _MAX_AUTO_PACKAGES = 24
+
+# Standalone kotlinc has no android.jar / Compose on the classpath.
+_ANDROID_KOTLIN_IMPORT = re.compile(
+    r"^\s*import\s+((android|androidx)(\.|\s|$)|com\.google\.android\.)",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _kotlin_snippet_needs_android_sdk(code: str) -> bool:
+    return bool(_ANDROID_KOTLIN_IMPORT.search(code or ""))
 
 
 def _write_raw_log(run_id: str, text: str) -> None:
@@ -72,24 +84,45 @@ def _analyze_kotlin_sync(payload: AnalyzeRequest, run_dir: P, run_id: str) -> di
     kt = run_dir / "Main.kt"
     kt.write_text(payload.code, encoding="utf-8")
 
-    t0 = time.perf_counter()
-    compile_out, compile_err, compile_rc = _run(["kotlinc", "Main.kt"], run_dir)
-    kotlinc_ms = int((time.perf_counter() - t0) * 1000)
-
-    error_log = parse_kotlinc_stderr(compile_err + "\n" + compile_out)
-    if not error_log and compile_rc != 0:
-        error_log = [
-            ErrorItem(
-                tool="kotlinc",
-                severity="error",
-                file="Main.kt",
-                message=(compile_err or compile_out or "kotlinc failed").strip()[:2000],
-            )
-        ]
-    compilable = compile_rc == 0 and not any(e.severity == "error" for e in error_log)
-    error_count = len([e for e in error_log if e.severity == "error"])
-
     static_flags: list[StaticFlagItem] = []
+    if _kotlin_snippet_needs_android_sdk(payload.code):
+        compile_out = ""
+        compile_err = (
+            "kotlinc skipped: snippet imports Android/AndroidX. "
+            "Standalone JVM compile is not supported (requires Android SDK / Gradle module)."
+        )
+        compile_rc = 0
+        kotlinc_ms = 0
+        error_log: list[ErrorItem] = []
+        compilable = True
+        error_count = 0
+        static_flags.append(
+            StaticFlagItem(
+                tool="kotlin_pipeline",
+                severity="info",
+                message=(
+                    "JVM kotlinc not run: Android or AndroidX imports detected. "
+                    "Detekt still runs on source; treat compilability as unverified vs a device build."
+                ),
+            )
+        )
+    else:
+        t0 = time.perf_counter()
+        compile_out, compile_err, compile_rc = _run([*resolve_kotlinc_argv(), "Main.kt"], run_dir)
+        kotlinc_ms = int((time.perf_counter() - t0) * 1000)
+
+        error_log = parse_kotlinc_stderr(compile_err + "\n" + compile_out)
+        if not error_log and compile_rc != 0:
+            error_log = [
+                ErrorItem(
+                    tool="kotlinc",
+                    severity="error",
+                    file="Main.kt",
+                    message=(compile_err or compile_out or "kotlinc failed").strip()[:2000],
+                )
+            ]
+        compilable = compile_rc == 0 and not any(e.severity == "error" for e in error_log)
+        error_count = len([e for e in error_log if e.severity == "error"])
     analyzer_out, analyzer_err = "", ""
 
     t1 = time.perf_counter()
@@ -110,8 +143,9 @@ def _analyze_kotlin_sync(payload: AnalyzeRequest, run_dir: P, run_id: str) -> di
             run_dir,
         )
         analyzer_out, analyzer_err = ao, ae
-        static_flags = parse_detekt_json(report)
-        if arc != 0 and not static_flags:
+        detekt_flags = parse_detekt_json(report)
+        static_flags.extend(detekt_flags)
+        if arc != 0 and not detekt_flags:
             static_flags.append(
                 StaticFlagItem(
                     tool="detekt",

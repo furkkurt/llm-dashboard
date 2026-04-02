@@ -4,8 +4,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path as P
 
-from backend.models import AnalysisSummary, ErrorItem, StaticFlagItem
-from backend.paper_scoring import build_paper_scores
+from backend.models import AnalysisMetrics, AnalysisSummary, ErrorItem, StaticFlagItem
+from backend.paper_scoring import recompute_full_paper_scores
 
 DB_PATH = os.getenv(
     "RESULTS_DB",
@@ -246,21 +246,20 @@ def update_faithfulness(
     static_flags = [StaticFlagItem.model_validate(x) for x in row["static_flags"]]
     metrics = row.get("metrics") or {}
     base_metrics = {k: v for k, v in metrics.items() if k != "paper_scores"}
-    counts: tuple[int | None, int | None, int | None] | None = None
+    am: AnalysisMetrics | None = None
     if base_metrics:
-        counts = (
-            base_metrics.get("analyzer_errors"),
-            base_metrics.get("analyzer_warnings"),
-            base_metrics.get("analyzer_infos"),
-        )
-
-    paper = build_paper_scores(
+        try:
+            am = AnalysisMetrics.model_validate(base_metrics)
+        except Exception:
+            am = None
+    paper = recompute_full_paper_scores(
         summary,
         error_log,
         static_flags,
         total_duration_ms=row.get("run_duration_ms"),
         faithfulness_score_1_5=new_score,
-        metrics_counts=counts,
+        faithfulness_0_100_direct=None,
+        metrics=am,
     )
     merged = {**base_metrics, "paper_scores": paper.model_dump()}
 
