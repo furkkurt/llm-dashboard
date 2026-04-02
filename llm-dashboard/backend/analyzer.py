@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import shutil
 import subprocess
 import time
 import uuid
@@ -47,6 +48,10 @@ def _write_raw_log(run_id: str, text: str) -> None:
         pass
 
 
+# Distinct from timeout (-1): caller may try the next Windows/PATH fallback.
+_RUN_EXE_NOT_FOUND = -2
+
+
 def _run(cmd: list[str], cwd: P, timeout: int = 180) -> tuple[str, str, int]:
     try:
         p = subprocess.run(
@@ -60,7 +65,7 @@ def _run(cmd: list[str], cwd: P, timeout: int = 180) -> tuple[str, str, int]:
     except subprocess.TimeoutExpired:
         return "", "Command timed out", -1
     except FileNotFoundError as e:
-        return "", str(e), -1
+        return "", str(e), _RUN_EXE_NOT_FOUND
 
 
 def _package_in_pubspec(pubspec: str, pkg: str) -> bool:
@@ -71,13 +76,83 @@ def _package_in_pubspec(pubspec: str, pkg: str) -> bool:
     )
 
 
+def _pub_get_argv_candidates() -> list[tuple[list[str], str]]:
+    """
+    Windows: bare ``subprocess.run([\"flutter\", ...])`` often raises WinError 2 because
+    CreateProcess does not resolve ``flutter.bat`` on PATH like cmd.exe does.
+    Try ``cmd /c`` first, then ``shutil.which`` paths, then legacy bare names.
+    """
+    seen: set[tuple[str, ...]] = set()
+    out: list[tuple[list[str], str]] = []
+
+    def add(argv: list[str], label: str) -> None:
+        key = tuple(argv)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append((argv, label))
+
+    if os.name == "nt":
+        add(["cmd", "/c", "flutter pub get"], "cmd /c flutter pub get")
+        add(["cmd", "/c", "dart pub get"], "cmd /c dart pub get")
+    fp = shutil.which("flutter")
+    if fp:
+        add([fp, "pub", "get"], f"{fp} pub get")
+    dp = shutil.which("dart")
+    if dp:
+        add([dp, "pub", "get"], f"{dp} pub get")
+    add(["flutter", "pub", "get"], "flutter pub get")
+    add(["dart", "pub", "get"], "dart pub get")
+    return out
+
+
 def _pub_get(project: P, log_parts: list[str]) -> tuple[str, str, int, str | None]:
-    for cmd in (["flutter", "pub", "get"], ["dart", "pub", "get"]):
+    last_o, last_e, last_r = "", "pub get: no command candidate", _RUN_EXE_NOT_FOUND
+    for cmd, label in _pub_get_argv_candidates():
         o, e, r = _run(cmd, project, timeout=300)
-        log_parts.append(f"=== {' '.join(cmd)} stdout ===\n{o}\n=== stderr ===\n{e}\n")
+        log_parts.append(f"=== {label} stdout ===\n{o}\n=== stderr ===\n{e}\n")
+        last_o, last_e, last_r = o, e, r
+        if r == _RUN_EXE_NOT_FOUND:
+            continue
         if r == 0:
-            return o, e, r, " ".join(cmd)
-    return o, e, r, None
+            return o, e, r, label
+    return last_o, last_e, last_r, None
+
+
+def _dart_argv_candidates(*parts: str) -> list[tuple[list[str], str]]:
+    """Same Windows PATH resolution idea as _pub_get for ``dart <parts>``."""
+    seen: set[tuple[str, ...]] = set()
+    out: list[tuple[list[str], str]] = []
+
+    def add(argv: list[str], label: str) -> None:
+        key = tuple(argv)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append((argv, label))
+
+    joined = " ".join(["dart", *parts])
+    if os.name == "nt":
+        add(["cmd", "/c", joined], f"cmd /c {joined}")
+    dp = shutil.which("dart")
+    if dp:
+        add([dp, *parts], " ".join([dp, *parts]))
+    add(["dart", *parts], joined)
+    return out
+
+
+def _run_dart_resolved(project: P, log_parts: list[str] | None, timeout: int, *dart_parts: str) -> tuple[str, str, int, str]:
+    """Run the first ``dart ...`` invocation that actually spawns (not WinError 2)."""
+    last_o, last_e, last_r = "", "", _RUN_EXE_NOT_FOUND
+    last_label = "dart"
+    for cmd, label in _dart_argv_candidates(*dart_parts):
+        o, e, r = _run(cmd, project, timeout=timeout)
+        if log_parts is not None:
+            log_parts.append(f"=== {label} stdout ===\n{o}\n=== stderr ===\n{e}\n")
+        last_o, last_e, last_r, last_label = o, e, r, label
+        if r != _RUN_EXE_NOT_FOUND:
+            return o, e, r, label
+    return last_o, last_e, last_r, last_label
 
 
 def _analyze_kotlin_sync(payload: AnalyzeRequest, run_dir: P, run_id: str) -> dict:
@@ -266,10 +341,12 @@ def _analyze_dart_sync(payload: AnalyzeRequest, run_dir: P, run_id: str) -> dict
 
     for _round in range(_MAX_PUB_RESOLVE_ROUNDS):
         t_a = time.perf_counter()
-        out, err, rc = _run(
-            ["dart", "analyze", "--format=machine"],
+        out, err, rc, _ana_label = _run_dart_resolved(
             project,
-            timeout=300,
+            None,
+            300,
+            "analyze",
+            "--format=machine",
         )
         analyze_ms_total += int((time.perf_counter() - t_a) * 1000)
         log_parts.append(
@@ -294,10 +371,13 @@ def _analyze_dart_sync(payload: AnalyzeRequest, run_dir: P, run_id: str) -> dict
         t_r = time.perf_counter()
         for pkg in to_add:
             tried.add(pkg)
-            add_out, add_err, add_rc = _run(
-                ["dart", "pub", "add", pkg],
+            add_out, add_err, add_rc, _ = _run_dart_resolved(
                 project,
-                timeout=120,
+                None,
+                120,
+                "pub",
+                "add",
+                pkg,
             )
             log_parts.append(
                 f"=== dart pub add {pkg} stdout ===\n{add_out}\n=== stderr ===\n{add_err}\n"
