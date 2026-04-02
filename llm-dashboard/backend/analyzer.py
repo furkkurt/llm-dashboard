@@ -52,11 +52,76 @@ def _write_raw_log(run_id: str, text: str) -> None:
 _RUN_EXE_NOT_FOUND = -2
 
 
-def _run(cmd: list[str], cwd: P, timeout: int = 180) -> tuple[str, str, int]:
+def _windows_cmd_exe() -> str:
+    """Absolute path: bare ``cmd`` is missing from PATH in some GUI-launched apps."""
+    com = (os.environ.get("ComSpec") or "").strip().strip('"')
+    if com and P(com).is_file():
+        return com
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    p = P(root) / "System32" / "cmd.exe"
+    if p.is_file():
+        return str(p)
+    return "cmd.exe"
+
+
+def _flutter_bin_paths() -> list[str]:
+    out: list[str] = []
+    for key in ("FLUTTER_ROOT", "FLUTTER_HOME"):
+        v = (os.environ.get(key) or "").strip().strip('"')
+        if not v:
+            continue
+        for name in ("flutter.bat", "flutter"):
+            b = P(v) / "bin" / name
+            if b.is_file():
+                out.append(str(b))
+                break
+    w = shutil.which("flutter")
+    if w:
+        out.append(w)
+    return list(dict.fromkeys(out))
+
+
+def _dart_bin_paths() -> list[str]:
+    out: list[str] = []
+    for key in ("DART_HOME", "DART_SDK"):
+        v = (os.environ.get(key) or "").strip().strip('"')
+        if not v:
+            continue
+        for name in ("dart.exe", "dart"):
+            b = P(v) / "bin" / name
+            if b.is_file():
+                out.append(str(b))
+                break
+    for key in ("FLUTTER_ROOT", "FLUTTER_HOME"):
+        v = (os.environ.get(key) or "").strip().strip('"')
+        if not v:
+            continue
+        bundled = P(v) / "bin" / "cache" / "dart-sdk" / "bin" / "dart.exe"
+        if bundled.is_file():
+            out.append(str(bundled))
+    w = shutil.which("dart")
+    if w:
+        out.append(w)
+    return list(dict.fromkeys(out))
+
+
+def _win_cmd_c_one_string(inner_argv: list[str]) -> list[str]:
+    """Run ``inner_argv`` via cmd.exe (required for ``.bat`` / ``.cmd`` launchers)."""
+    return [_windows_cmd_exe(), "/c", subprocess.list2cmdline(inner_argv)]
+
+
+def _run(
+    cmd: list[str] | str,
+    cwd: P,
+    timeout: int = 180,
+    *,
+    shell: bool = False,
+) -> tuple[str, str, int]:
     try:
         p = subprocess.run(
             cmd,
             cwd=str(cwd),
+            shell=shell,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -76,25 +141,56 @@ def _package_in_pubspec(pubspec: str, pkg: str) -> bool:
     )
 
 
-def _pub_get_argv_candidates() -> list[tuple[list[str], str]]:
+def _pub_get_candidates() -> list[tuple[list[str] | str, str, bool]]:
     """
-    Windows: bare ``subprocess.run([\"flutter\", ...])`` often raises WinError 2 because
-    CreateProcess does not resolve ``flutter.bat`` on PATH like cmd.exe does.
-    Try ``cmd /c`` first, then ``shutil.which`` paths, then legacy bare names.
-    """
-    seen: set[tuple[str, ...]] = set()
-    out: list[tuple[list[str], str]] = []
+    Windows pitfalls:
 
-    def add(argv: list[str], label: str) -> None:
-        key = tuple(argv)
+    * ``CreateProcess`` cannot start ``.bat`` / ``.cmd`` directly — ``[flutter.bat, "pub", "get"]`` → WinError 2.
+    * Bare ``cmd`` may be missing from PATH when the API/UI is started from a GUI shortcut.
+    * ``shell=True`` uses ``ComSpec`` and matches a normal terminal session.
+    """
+    out: list[tuple[list[str] | str, str, bool]] = []
+    seen: set[tuple[bool, tuple[str, ...] | str]] = set()
+
+    def add(cmd: list[str] | str, label: str, shell: bool = False) -> None:
+        key: tuple[bool, tuple[str, ...] | str]
+        if shell:
+            key = (True, cmd if isinstance(cmd, str) else tuple(cmd))
+        else:
+            assert isinstance(cmd, list)
+            key = (False, tuple(cmd))
         if key in seen:
             return
         seen.add(key)
-        out.append((argv, label))
+        out.append((cmd, label, shell))
 
     if os.name == "nt":
-        add(["cmd", "/c", "flutter pub get"], "cmd /c flutter pub get")
-        add(["cmd", "/c", "dart pub get"], "cmd /c dart pub get")
+        add("flutter pub get", "shell: flutter pub get", True)
+        add("dart pub get", "shell: dart pub get", True)
+        add(
+            _win_cmd_c_one_string(["flutter", "pub", "get"]),
+            "cmd.exe /c flutter pub get",
+        )
+        add(
+            _win_cmd_c_one_string(["dart", "pub", "get"]),
+            "cmd.exe /c dart pub get",
+        )
+        for fp in _flutter_bin_paths():
+            add(
+                _win_cmd_c_one_string([fp, "pub", "get"]),
+                f"cmd.exe /c ({fp}) pub get",
+            )
+        for dp in _dart_bin_paths():
+            add(
+                _win_cmd_c_one_string([dp, "pub", "get"]),
+                f"cmd.exe /c ({dp}) pub get",
+            )
+            if dp.lower().endswith(".exe"):
+                add([dp, "pub", "get"], f"{dp} pub get")
+        add(["flutter", "pub", "get"], "flutter pub get")
+        add(["dart", "pub", "get"], "dart pub get")
+        return out
+
     fp = shutil.which("flutter")
     if fp:
         add([fp, "pub", "get"], f"{fp} pub get")
@@ -108,8 +204,8 @@ def _pub_get_argv_candidates() -> list[tuple[list[str], str]]:
 
 def _pub_get(project: P, log_parts: list[str]) -> tuple[str, str, int, str | None]:
     last_o, last_e, last_r = "", "pub get: no command candidate", _RUN_EXE_NOT_FOUND
-    for cmd, label in _pub_get_argv_candidates():
-        o, e, r = _run(cmd, project, timeout=300)
+    for cmd, label, use_shell in _pub_get_candidates():
+        o, e, r = _run(cmd, project, timeout=300, shell=use_shell)
         log_parts.append(f"=== {label} stdout ===\n{o}\n=== stderr ===\n{e}\n")
         last_o, last_e, last_r = o, e, r
         if r == _RUN_EXE_NOT_FOUND:
@@ -119,25 +215,41 @@ def _pub_get(project: P, log_parts: list[str]) -> tuple[str, str, int, str | Non
     return last_o, last_e, last_r, None
 
 
-def _dart_argv_candidates(*parts: str) -> list[tuple[list[str], str]]:
-    """Same Windows PATH resolution idea as _pub_get for ``dart <parts>``."""
-    seen: set[tuple[str, ...]] = set()
-    out: list[tuple[list[str], str]] = []
+def _dart_argv_candidates(*parts: str) -> list[tuple[list[str] | str, str, bool]]:
+    """Same launcher rules as ``_pub_get_candidates`` for ``dart ...``."""
+    out: list[tuple[list[str] | str, str, bool]] = []
+    seen: set[tuple[bool, tuple[str, ...] | str]] = set()
+    inner = ["dart", *parts]
+    shell_line = " ".join(inner)
+    list2 = subprocess.list2cmdline(inner)
 
-    def add(argv: list[str], label: str) -> None:
-        key = tuple(argv)
+    def add(cmd: list[str] | str, label: str, shell: bool = False) -> None:
+        if shell:
+            key = (True, cmd if isinstance(cmd, str) else tuple(cmd))
+        else:
+            assert isinstance(cmd, list)
+            key = (False, tuple(cmd))
         if key in seen:
             return
         seen.add(key)
-        out.append((argv, label))
+        out.append((cmd, label, shell))
 
-    joined = " ".join(["dart", *parts])
     if os.name == "nt":
-        add(["cmd", "/c", joined], f"cmd /c {joined}")
+        add(shell_line, f"shell: {shell_line}", True)
+        add(_win_cmd_c_one_string(inner), f"cmd.exe /c {list2}")
+        for dp in _dart_bin_paths():
+            alt = [dp, *parts]
+            l2 = subprocess.list2cmdline(alt)
+            add(_win_cmd_c_one_string(alt), f"cmd.exe /c {l2}")
+            if dp.lower().endswith(".exe"):
+                add(alt, l2)
+        add(["dart", *parts], list2)
+        return out
+
     dp = shutil.which("dart")
     if dp:
-        add([dp, *parts], " ".join([dp, *parts]))
-    add(["dart", *parts], joined)
+        add([dp, *parts], list2)
+    add(["dart", *parts], list2)
     return out
 
 
@@ -145,8 +257,8 @@ def _run_dart_resolved(project: P, log_parts: list[str] | None, timeout: int, *d
     """Run the first ``dart ...`` invocation that actually spawns (not WinError 2)."""
     last_o, last_e, last_r = "", "", _RUN_EXE_NOT_FOUND
     last_label = "dart"
-    for cmd, label in _dart_argv_candidates(*dart_parts):
-        o, e, r = _run(cmd, project, timeout=timeout)
+    for cmd, label, use_shell in _dart_argv_candidates(*dart_parts):
+        o, e, r = _run(cmd, project, timeout=timeout, shell=use_shell)
         if log_parts is not None:
             log_parts.append(f"=== {label} stdout ===\n{o}\n=== stderr ===\n{e}\n")
         last_o, last_e, last_r, last_label = o, e, r, label

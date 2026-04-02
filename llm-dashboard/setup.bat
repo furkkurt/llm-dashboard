@@ -54,6 +54,46 @@ if not exist "tools\detekt-cli.jar" (
     echo (see https://github.com/detekt/detekt/releases)
 )
 
+REM --- Flutter / Dart (Windows) ---
+REM Analyzer runs pub get / dart analyze. GUI-started Uvicorn may not see User PATH;
+REM set FLUTTER_ROOT in local.env so backend finds bin\flutter.bat ^(.env.example^).
+set "FOUND_FLUTTER=0"
+where flutter >nul 2>nul
+if not errorlevel 1 set "FOUND_FLUTTER=1"
+
+if "%FOUND_FLUTTER%"=="0" if defined FLUTTER_ROOT (
+    if exist "%FLUTTER_ROOT%\bin\flutter.bat" set "FOUND_FLUTTER=1"
+)
+if "%FOUND_FLUTTER%"=="0" if defined FLUTTER_ROOT (
+    if exist "%FLUTTER_ROOT%\bin\flutter" set "FOUND_FLUTTER=1"
+)
+if "%FOUND_FLUTTER%"=="0" if defined FLUTTER_HOME (
+    if exist "%FLUTTER_HOME%\bin\flutter.bat" set "FOUND_FLUTTER=1"
+)
+if "%FOUND_FLUTTER%"=="0" if defined FLUTTER_HOME (
+    if exist "%FLUTTER_HOME%\bin\flutter" set "FOUND_FLUTTER=1"
+)
+
+if "%FOUND_FLUTTER%"=="0" (
+    echo WARNING: Flutter SDK not found ^(flutter not on PATH; FLUTTER_ROOT/FLUTTER_HOME missing or invalid^).
+    echo   Flutter analysis ^(pub get^) may fail with WinError 2. Fix: add SDK\bin to PATH, or add
+    echo   FLUTTER_ROOT=C:\path\to\flutter to local.env ^(see .env.example^).
+) else (
+    where flutter >nul 2>nul
+    if not errorlevel 1 (
+        echo Flutter: found on PATH ^(pub get / dart analyze^).
+    ) else (
+        echo Flutter: FLUTTER_ROOT / FLUTTER_HOME points to a valid SDK ^(recommend local.env for API/Streamlit^).
+    )
+)
+
+where dart >nul 2>nul
+if errorlevel 1 (
+    if "%FOUND_FLUTTER%"=="1" echo NOTE: dart not on PATH separately; Flutter-bundled dart is usually enough.
+) else (
+    echo dart: found on PATH.
+)
+
 echo.
 echo Setup complete.
 echo To activate the environment, run: .venv\Scripts\activate
