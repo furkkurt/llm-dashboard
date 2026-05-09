@@ -9,6 +9,18 @@ from backend.llm_prompts import build_system_instruction
 from backend.models import GenerateRequest, GenerateResponse, TargetLanguage
 
 
+def _resolve_generation_provider(req: GenerateRequest) -> str:
+    if req.generation_provider in ("openai", "anthropic", "openrouter"):
+        return req.generation_provider
+    # Backward-compatible defaults when provider omitted (legacy fixed lane names).
+    ls = (req.llm_source or "").strip()
+    if ls == "ChatGPT":
+        return "openai"
+    if ls == "Claude":
+        return "anthropic"
+    return "openrouter"
+
+
 def _timeout_sec() -> float:
     try:
         return float(os.getenv("LLM_REQUEST_TIMEOUT_SEC", "120"))
@@ -91,9 +103,10 @@ def run_generation(req: GenerateRequest) -> GenerateResponse:
     timeout = _timeout_sec()
     system = build_system_instruction(target_language=req.target_language)
     try:
-        if req.llm_source == "ChatGPT":
+        prov = _resolve_generation_provider(req)
+        if prov == "openai":
             raw = _openai_generate(req, system, timeout)
-        elif req.llm_source == "Claude":
+        elif prov == "anthropic":
             raw = _anthropic_generate(req, system, timeout)
         else:
             raw = _gemini_generate(req, system, timeout)

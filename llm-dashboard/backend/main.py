@@ -183,12 +183,14 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
 @app.get("/results")
 async def results(
     llm_source: str | None = None,
+    llm_source_contains: str | None = None,
     target_language: str | None = None,
     snippet_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ):
     return fetch_results(
         llm_source=llm_source,
+        llm_source_contains=llm_source_contains,
         target_language=target_language,
         snippet_id=snippet_id,
         limit=limit,

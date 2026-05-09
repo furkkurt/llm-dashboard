@@ -145,6 +145,7 @@ def save_analysis_result(**kwargs) -> int:
 def fetch_results(
     *,
     llm_source: str | None = None,
+    llm_source_contains: str | None = None,
     target_language: str | None = None,
     snippet_id: str | None = None,
     limit: int = 100,
@@ -155,6 +156,9 @@ def fetch_results(
     if llm_source:
         clauses.append("llm_source = ?")
         params.append(llm_source)
+    elif llm_source_contains and llm_source_contains.strip():
+        clauses.append("llm_source LIKE ?")
+        params.append(f"%{llm_source_contains.strip()}%")
     if target_language:
         clauses.append("target_language = ?")
         params.append(target_language)

@@ -29,18 +29,33 @@ ANALYZE_URL = f"{API_BASE}/analyze"
 RESULTS_URL = f"{API_BASE}/results"
 REQUEST_TIMEOUT_SEC = 600
 
-# (display name, Flutter session key, Kotlin session key)
-MODEL_CODE_KEYS = [
-    ("ChatGPT", "code_flutter_chatgpt", "code_kotlin_chatgpt"),
-    ("Claude", "code_flutter_claude", "code_kotlin_claude"),
-    ("Gemini", "code_flutter_gemini", "code_kotlin_gemini"),
+# Stable storage keys (snippet JSON / session); column titles come from model_label_*.
+SLOT_CODE_KEYS = [
+    ("code_flutter_chatgpt", "code_kotlin_chatgpt"),
+    ("code_flutter_claude", "code_kotlin_claude"),
+    ("code_flutter_gemini", "code_kotlin_gemini"),
 ]
+MODEL_LABEL_KEYS = ("model_label_0", "model_label_1", "model_label_2")
+DEFAULT_MODEL_LABELS = ("ChatGPT", "Claude", "Gemini")
 
 _LEGACY_MODEL_CODE = {
     "ChatGPT": "code_chatgpt",
     "Claude": "code_claude",
     "Gemini": "code_gemini",
 }
+
+
+def _effective_model_label(slot: int) -> str:
+    if slot < 0 or slot > 2:
+        return "Model"
+    key = MODEL_LABEL_KEYS[slot]
+    raw = str(st.session_state.get(key, "") or "").strip()
+    return (raw[:120] if raw else DEFAULT_MODEL_LABELS[slot])
+
+
+def _iter_model_slots():
+    for i, (fk, kk) in enumerate(SLOT_CODE_KEYS):
+        yield _effective_model_label(i), fk, kk, i
 
 _CHART_COLOR_FLUTTER = "#3182ce"
 _CHART_COLOR_KOTLIN = "#ed8936"
@@ -113,13 +128,17 @@ st.markdown(
 
 if "prompt_area" not in st.session_state:
     st.session_state.prompt_area = ""
-for _label, fk, kk in MODEL_CODE_KEYS:
-    if fk not in st.session_state:
-        st.session_state[fk] = ""
+for i, key in enumerate(MODEL_LABEL_KEYS):
+    if key not in st.session_state:
+        st.session_state[key] = DEFAULT_MODEL_LABELS[i]
+for _fk, kk in SLOT_CODE_KEYS:
+    if _fk not in st.session_state:
+        st.session_state[_fk] = ""
     if kk not in st.session_state:
         st.session_state[kk] = ""
 if not st.session_state.get("_legacy_code_keys_migrated"):
-    for label, fk, kk in MODEL_CODE_KEYS:
+    for i, label in enumerate(DEFAULT_MODEL_LABELS):
+        fk, kk = SLOT_CODE_KEYS[i]
         old = _LEGACY_MODEL_CODE[label]
         if old in st.session_state:
             legacy_val = str(st.session_state.get(old, "") or "")
@@ -194,10 +213,14 @@ def _active_languages_from_setting(sel: str) -> list[str]:
 
 def _snippet_codes_flat_from_session() -> dict[str, str]:
     out: dict[str, str] = {}
-    for _label, fk, kk in MODEL_CODE_KEYS:
-        out[fk] = str(st.session_state.get(fk, ""))
+    for _fk, kk in SLOT_CODE_KEYS:
+        out[_fk] = str(st.session_state.get(_fk, ""))
         out[kk] = str(st.session_state.get(kk, ""))
     return out
+
+
+def _model_labels_for_snippet() -> list[str]:
+    return [_effective_model_label(i) for i in range(3)]
 
 
 def _compare_lang_chart(
@@ -543,6 +566,7 @@ def _snippet_json_for_download() -> str:
         "snippet_id": str(st.session_state.get("snippet_id_input", "")).strip(),
         "target_language": str(st.session_state.get("target_language_sel", "Kotlin")),
         "prompt": str(st.session_state.get("prompt_area", "")),
+        "model_labels": _model_labels_for_snippet(),
     }
     base.update(_snippet_codes_flat_from_session())
     return json.dumps(base, ensure_ascii=False, indent=2)
@@ -576,8 +600,6 @@ def _compare_analysis_export_json(results: dict) -> str:
     Serialize the current Compare run: per-model API payloads (metrics, paper_scores,
     ai_commentary when present), aggregate AI panel text, prompt, and submitted code.
     """
-    flutter_row = {label: str(st.session_state.get(fk, "")) for label, fk, _kk in MODEL_CODE_KEYS}
-    kotlin_row = {label: str(st.session_state.get(kk, "")) for label, _fk, kk in MODEL_CODE_KEYS}
     models_out: dict = {}
     for run_key, entry in results.items():
         row: dict = {
@@ -605,8 +627,15 @@ def _compare_analysis_export_json(results: dict) -> str:
         },
         "inputs": {
             "prompt": str(st.session_state.get("prompt_area", "")),
-            "code_flutter_by_model": flutter_row,
-            "code_kotlin_by_model": kotlin_row,
+            "model_labels": _model_labels_for_snippet(),
+            "code_flutter_by_model": {
+                _effective_model_label(i): str(st.session_state.get(SLOT_CODE_KEYS[i][0], ""))
+                for i in range(3)
+            },
+            "code_kotlin_by_model": {
+                _effective_model_label(i): str(st.session_state.get(SLOT_CODE_KEYS[i][1], ""))
+                for i in range(3)
+            },
         },
         "models": models_out,
     }
@@ -620,9 +649,17 @@ def _parse_snippet_upload(data: dict) -> dict:
     if lang is not None and lang not in ("Kotlin", "Flutter", "Both"):
         raise ValueError("target_language must be Kotlin, Flutter, or Both if set")
     out: dict = {"prompt": str(data.get("prompt", ""))}
-    for label, fk, kk in MODEL_CODE_KEYS:
+    for i, (fk, kk) in enumerate(SLOT_CODE_KEYS):
         out[fk] = str(data.get(fk, ""))
         out[kk] = str(data.get(kk, ""))
+    labels = data.get("model_labels")
+    if isinstance(labels, list):
+        for i, key in enumerate(MODEL_LABEL_KEYS):
+            if i < len(labels):
+                out[key] = str(labels[i]).strip()[:120]
+    for key in MODEL_LABEL_KEYS:
+        if key in data and isinstance(data[key], str):
+            out[key] = str(data[key]).strip()[:120]
     ver = int(data.get("version", 1))
     if ver < 2:
         cg = str(data.get("code_chatgpt", data.get("code_gpt", "")))
@@ -630,7 +667,8 @@ def _parse_snippet_upload(data: dict) -> dict:
         cgm = str(data.get("code_gemini", ""))
         legacy_map = {"ChatGPT": cg, "Claude": cc, "Gemini": cgm}
         eff_lang = lang if lang in ("Kotlin", "Flutter", "Both") else "Kotlin"
-        for label, fk, kk in MODEL_CODE_KEYS:
+        for i, label in enumerate(DEFAULT_MODEL_LABELS):
+            fk, kk = SLOT_CODE_KEYS[i]
             text = legacy_map.get(label, "")
             if eff_lang == "Flutter":
                 if not str(out.get(fk, "")).strip():
@@ -654,7 +692,7 @@ st.markdown(
   <div class="llm-dashboard-accent" aria-hidden="true"></div>
   <div>
     <p class="llm-dashboard-title">LLM Dashboard</p>
-    <p class="llm-dashboard-subtitle">Compare Kotlin & Flutter outputs from ChatGPT, Claude & Gemini</p>
+    <p class="llm-dashboard-subtitle">Compare Kotlin &amp; Flutter outputs — label each model column as you like</p>
   </div>
 </div>
 """,
@@ -670,9 +708,12 @@ with tab_compare:
         d = st.session_state.pop("_pending_compare_snippet")
         if isinstance(d, dict):
             st.session_state["prompt_area"] = str(d.get("prompt", ""))
-            for _label, fk, kk in MODEL_CODE_KEYS:
+            for fk, kk in SLOT_CODE_KEYS:
                 st.session_state[fk] = str(d.get(fk, ""))
                 st.session_state[kk] = str(d.get(kk, ""))
+            for key in MODEL_LABEL_KEYS:
+                if key in d:
+                    st.session_state[key] = str(d.get(key, "")).strip()[:120]
             if "snippet_id" in d:
                 st.session_state["snippet_id_input"] = str(d["snippet_id"])
             if d.get("target_language") in ("Kotlin", "Flutter", "Both"):
@@ -698,8 +739,8 @@ with tab_compare:
         )
         st.markdown("**Snippet bundle**")
         st.caption(
-            "Download or upload a JSON file to save or restore the prompt, six code boxes (Flutter + Kotlin rows), "
-            "snippet id, and language."
+            "Download or upload a JSON file to save or restore the prompt, **model display names**, "
+            "six code boxes (Flutter + Kotlin rows), snippet id, and language."
         )
         st.download_button(
             label="Download snippet (.json)",
@@ -707,14 +748,14 @@ with tab_compare:
             file_name=_snippet_download_filename(),
             mime="application/json",
             width="stretch",
-            help="Saves prompt, Flutter + Kotlin code rows, snippet id, and target language. "
+            help="Saves prompt, model labels, Flutter + Kotlin code rows, snippet id, and target language. "
             "Filename uses Snippet ID when set, else llm-eval-snippet.json.",
         )
         up_left = st.file_uploader(
             "Browse / upload snippet (.json)",
             type=["json"],
             key="snippet_json_upload",
-            help="Restores prompt, six code areas, and optional snippet id / language.",
+            help="Restores prompt, model names, six code areas, and optional snippet id / language.",
         )
         if up_left is not None:
             digest = hashlib.sha256(up_left.getvalue()).hexdigest()
@@ -761,13 +802,27 @@ with tab_compare:
                 key="prompt_area",
             )
             active_langs = _active_languages_from_setting(str(st.session_state.get("target_language_sel", "Kotlin")))
+            st.markdown("**Model display names**")
+            st.caption(
+                "Name each LLM for its column (e.g. GPT-4.1, Claude Sonnet, Qwen). "
+                "Used in charts, exports, SQLite **llm_source**, and OpenRouter commentary."
+            )
+            name_cols = st.columns(3)
+            for i, lk in enumerate(MODEL_LABEL_KEYS):
+                with name_cols[i]:
+                    st.text_input(
+                        f"Column {i + 1}",
+                        key=lk,
+                        placeholder=DEFAULT_MODEL_LABELS[i],
+                        help="Empty → default " + DEFAULT_MODEL_LABELS[i],
+                    )
             if "Flutter" in active_langs:
                 st.markdown("**Flutter (Dart)** — per model")
                 fcols = st.columns(3)
-                for i, (model_name, fk, _kk) in enumerate(MODEL_CODE_KEYS):
-                    with fcols[i]:
+                for model_name, fk, _kk, slot in _iter_model_slots():
+                    with fcols[slot]:
                         st.text_area(
-                            f"{model_name}",
+                            model_name,
                             height=130,
                             placeholder=f"Dart / Flutter output from {model_name}…",
                             key=fk,
@@ -775,10 +830,10 @@ with tab_compare:
             if "Kotlin" in active_langs:
                 st.markdown("**Kotlin** — per model")
                 kcols = st.columns(3)
-                for i, (model_name, _fk, kk) in enumerate(MODEL_CODE_KEYS):
-                    with kcols[i]:
+                for model_name, _fk, kk, slot in _iter_model_slots():
+                    with kcols[slot]:
                         st.text_area(
-                            f"{model_name}",
+                            model_name,
                             height=130,
                             placeholder=f"Kotlin output from {model_name}…",
                             key=kk,
@@ -798,7 +853,7 @@ with tab_compare:
             else:
                 active = _active_languages_from_setting(str(target_language))
                 to_run: list[tuple[str, str, str, str]] = []
-                for model_name, fkey, kkey in MODEL_CODE_KEYS:
+                for model_name, fkey, kkey, _slot in _iter_model_slots():
                     for lang in active:
                         ck = fkey if lang == "Flutter" else kkey
                         code = str(st.session_state.get(ck, "")).strip()
@@ -808,7 +863,7 @@ with tab_compare:
                 if not to_run:
                     st.error(
                         "Paste code in at least one box for the active language row(s) "
-                        "(ChatGPT / Claude / Gemini)."
+                        "(use the three model columns you labeled above)."
                     )
                 else:
                     new_results: dict[str, dict] = {}
@@ -1006,7 +1061,11 @@ with tab_history:
     with f1:
         h_snip = st.text_input("Filter snippet_id", key="hist_snip")
     with f2:
-        h_llm = st.selectbox("LLM", ["(any)", "ChatGPT", "Claude", "Gemini"], key="hist_llm")
+        h_llm_sub = st.text_input(
+            "Filter llm_source (substring, empty = any)",
+            key="hist_llm_sub",
+            help="Matches the model label you saved (e.g. GPT, Claude, local).",
+        )
     with f3:
         h_limit = st.number_input("Max rows", min_value=20, max_value=500, value=200, step=10)
 
@@ -1014,8 +1073,8 @@ with tab_history:
         params: dict = {"limit": int(h_limit)}
         if h_snip.strip():
             params["snippet_id"] = h_snip.strip()
-        if h_llm != "(any)":
-            params["llm_source"] = h_llm
+        if h_llm_sub.strip():
+            params["llm_source_contains"] = h_llm_sub.strip()
         try:
             hr = requests.get(RESULTS_URL, params=params, timeout=120)
             if hr.status_code != 200:

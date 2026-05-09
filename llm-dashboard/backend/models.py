@@ -1,13 +1,14 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-LLMSource = Literal["ChatGPT", "Claude", "Gemini"]
 TargetLanguage = Literal["Kotlin", "Flutter"]
 
 
 class AnalyzeRequest(BaseModel):
-    llm_source: LLMSource
+    """llm_source is a free-form display label (e.g. GPT-4o, local Ollama); used in DB, UI, and AI commentary."""
+
+    llm_source: str = Field(min_length=1, max_length=120)
     target_language: TargetLanguage
     snippet_id: str = Field(min_length=1, max_length=200)
     prompt: str = Field(min_length=1)
@@ -23,6 +24,16 @@ class AnalyzeRequest(BaseModel):
         False,
         description="If true, call OpenRouter (chat completions) for faithfulness hint + metric comments.",
     )
+
+    @field_validator("llm_source", mode="before")
+    @classmethod
+    def _strip_llm_source(cls, v: object) -> str:
+        if v is None:
+            raise ValueError("llm_source is required")
+        s = str(v).strip()
+        if not s:
+            raise ValueError("llm_source must not be empty or whitespace-only")
+        return s[:120]
 
 
 class AiCommentary(BaseModel):
@@ -79,9 +90,25 @@ GeminiHealthResponse = CommentaryHealthResponse
 
 
 class GenerateRequest(BaseModel):
-    llm_source: LLMSource
+    """llm_source is a label for logging/UI; generation_provider selects which API to call."""
+
+    llm_source: str = Field(min_length=1, max_length=120)
     target_language: TargetLanguage
     prompt: str = Field(min_length=1)
+    generation_provider: Optional[Literal["openai", "anthropic", "openrouter"]] = Field(
+        None,
+        description="If set, selects API for /generate. If omitted, ChatGPT→openai, Claude→anthropic, else OpenRouter.",
+    )
+
+    @field_validator("llm_source", mode="before")
+    @classmethod
+    def _strip_gen_llm_source(cls, v: object) -> str:
+        if v is None:
+            raise ValueError("llm_source is required")
+        s = str(v).strip()
+        if not s:
+            raise ValueError("llm_source must not be empty or whitespace-only")
+        return s[:120]
 
 
 class GenerateResponse(BaseModel):
